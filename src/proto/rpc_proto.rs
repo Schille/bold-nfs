@@ -1,16 +1,15 @@
-
 extern crate serde;
-extern crate serde_xdr;
 extern crate serde_bytes;
 extern crate serde_derive;
-
-
-
+extern crate serde_xdr;
 
 use serde_derive::{Deserialize, Serialize};
 
-use super::{from_bytes, nfs4_proto::{Compound4args, Compound4res}, to_bytes};
-
+use super::{
+    from_bytes,
+    nfs4_proto::{Compound4args, Compound4res},
+    to_bytes,
+};
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
 pub struct AuthUnix {
@@ -28,9 +27,8 @@ pub enum OpaqueAuth {
     AuthUnix(AuthUnix) = 1,
     // not supported
     AuthShort = 2,
-    AuthDes = 3, 
+    AuthDes = 3,
 }
-
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CallBody {
@@ -40,8 +38,8 @@ pub struct CallBody {
     pub proc: u32,
     pub cred: OpaqueAuth,
     pub verf: OpaqueAuth,
-    
-    #[serde(deserialize_with="read_compound_args")]
+
+    #[serde(deserialize_with = "read_compound_args")]
     pub args: Option<Compound4args>,
 }
 
@@ -55,7 +53,7 @@ where
         Err(_e) => {
             println!("Error deserializing compound args: {:?}", _e);
             Ok(None)
-        },
+        }
     }
 }
 
@@ -65,7 +63,6 @@ pub enum MsgType {
     Call(CallBody) = 0,
     Reply(ReplyBody) = 1,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AcceptedReply {
@@ -92,7 +89,7 @@ pub enum AcceptBody {
     Success(Compound4res) = 0,
     ProgUnavail = 1,
     /// remote can't support version #
-    ProgMismatch(MismatchInfo)  = 2,
+    ProgMismatch(MismatchInfo) = 2,
     ProcUnavail = 3,
     /// procedure can't decode params
     GarbageArgs = 4,
@@ -122,7 +119,6 @@ pub enum AuthStat {
     /// rejected for security reasons
     AuthTooWeak = 5,
 }
-
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RpcCallMsg {

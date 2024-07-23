@@ -1,25 +1,34 @@
-use std::{cmp::{max, min}, path};
+use std::{
+    cmp::{max, min},
+    path,
+};
 
-use nfsv4::{proto::NFSProtoCodec, server::{nfs40::NFS40Server, NFSProtoImpl, NFSService}};
+use bold::{
+    proto::NFSProtoCodec,
+    server::{nfs40::NFS40Server, NFSProtoImpl, NFSService},
+};
 use tokio::net::TcpListener;
 use tokio_tower::pipeline;
 use tokio_util::codec::Framed;
 use tracing::{error, event, info, span, trace, Instrument, Level};
-use vfs::{VfsPath, PhysicalFS, AltrootFS};
-
+use vfs::{AltrootFS, PhysicalFS, VfsPath};
 
 #[tokio::main]
 async fn main() {
-    let subscriber = tracing_subscriber::fmt().event_format(
-        tracing_subscriber::fmt::format()
-            .with_target(true) 
-            .with_source_location(true)
-
-    ).with_max_level(Level::DEBUG).finish();
+    let subscriber = tracing_subscriber::fmt()
+        .event_format(
+            tracing_subscriber::fmt::format()
+                .with_target(true)
+                .with_source_location(true),
+        )
+        .with_max_level(Level::DEBUG)
+        .finish();
     let _ = tracing::subscriber::set_global_default(subscriber);
 
-    let root: VfsPath = AltrootFS::new(VfsPath::new(PhysicalFS::new(std::env::current_dir().unwrap()))).into();
-    
+    let root: VfsPath = AltrootFS::new(VfsPath::new(PhysicalFS::new(
+        std::env::current_dir().unwrap(),
+    )))
+    .into();
 
     let bind = "127.0.0.1:11112";
     let listener = TcpListener::bind(bind).await.unwrap();
@@ -28,7 +37,7 @@ async fn main() {
     // TODO add support for multiple NFSv4 minor versions
     let nfs_protocol = NFS40Server::new(root);
     let nfs_server = NFSService::new(nfs_protocol);
-    
+
     loop {
         match listener.accept().await {
             Ok((stream, addr)) => {
@@ -39,10 +48,13 @@ async fn main() {
                 let nfs_transport = Framed::new(stream, NFSProtoCodec::new());
                 // clone NFS server to move into the pipeline and actor connects with shared state
                 let service = nfs_server.clone();
-                tokio::spawn(async move { pipeline::Server::new(nfs_transport, service) }.instrument(span).await);
-            },
+                tokio::spawn(
+                    async move { pipeline::Server::new(nfs_transport, service) }
+                        .instrument(span)
+                        .await,
+                );
+            }
             Err(e) => error!("couldn't get client: {:?}", e),
         }
     }
 }
-

@@ -5,7 +5,7 @@ mod tests {
     use std::error::Error;
 
     use base64::prelude::*;
-    use nfsv4::{nfsv4::MsgType, proto::{from_bytes, rpc_proto::OpaqueAuth}};
+    use bold::{bold::MsgType, proto::{from_bytes, rpc_proto::OpaqueAuth}};
     use crate::messages::nfsv40;
     
 

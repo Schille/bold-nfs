@@ -2,13 +2,15 @@ use num_traits::ToPrimitive;
 
 use super::nfs4_proto::FileAttr;
 
-pub fn file_attrs_to_bitmap(file_attrs: &Vec<FileAttr>) -> Result<Vec<u32>, anyhow::Error>
-{
+pub fn file_attrs_to_bitmap(file_attrs: &Vec<FileAttr>) -> Result<Vec<u32>, anyhow::Error> {
     let mut attrs = Vec::new();
-    let mut idxs = file_attrs.iter().map(|attr| {
-        let idx = ToPrimitive::to_u32(attr).unwrap();
-        idx
-    }).collect::<Vec<u32>>();
+    let mut idxs = file_attrs
+        .iter()
+        .map(|attr| {
+            let idx = ToPrimitive::to_u32(attr).unwrap();
+            idx
+        })
+        .collect::<Vec<u32>>();
 
     idxs.reverse();
     let mut segment = 0_u32;

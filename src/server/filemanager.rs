@@ -8,7 +8,8 @@ use std::{
 };
 
 use crate::proto::nfs4_proto::{
-    FileAttr, FileAttrValue, Fsid4, NfsFtype4, NfsLease4, NfsStat4, Nfstime4, ACL4_SUPPORT_ALLOW_ACL, FH4_PERSISTENT, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR
+    FileAttr, FileAttrValue, Fsid4, NfsFtype4, NfsLease4, NfsStat4, Nfstime4,
+    ACL4_SUPPORT_ALLOW_ACL, FH4_PERSISTENT, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR,
 };
 use multi_index_map::MultiIndexMap;
 use vfs::{error::VfsErrorKind, VfsError, VfsPath};
@@ -144,10 +145,12 @@ impl Filehandle {
     }
 
     fn attr_time_access() -> Nfstime4 {
-        let since_epoch = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap();     
+        let since_epoch = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap();
         Nfstime4 {
             seconds: since_epoch.as_secs() as i64,
-            nseconds: since_epoch.subsec_nanos()
+            nseconds: since_epoch.subsec_nanos(),
         }
     }
 }
@@ -195,15 +198,21 @@ impl FileManager {
         id
     }
 
-    fn get_filehandle_by_id<'a>(id: &'a Vec<u8>, db: &mut Arc<Mutex<FilehandleDb>>) -> Option<Filehandle> {
+    fn get_filehandle_by_id<'a>(
+        id: &'a Vec<u8>,
+        db: &mut Arc<Mutex<FilehandleDb>>,
+    ) -> Option<Filehandle> {
         let db = db.lock().unwrap();
         match db.get_by_id(id) {
             Some(fh) => Some(fh.clone()),
             None => None,
         }
     }
-    
-    pub fn get_filehandle_by_path<'a>(path: &String, db: &mut Arc<Mutex<FilehandleDb>>) -> Option<Filehandle> {
+
+    pub fn get_filehandle_by_path<'a>(
+        path: &String,
+        db: &mut Arc<Mutex<FilehandleDb>>,
+    ) -> Option<Filehandle> {
         let db = db.lock().unwrap();
         print!("get_filehandle_by_path: {}", path);
         match db.get_by_path(path) {
@@ -217,7 +226,12 @@ impl FileManager {
         match Self::get_filehandle_by_id(&id, db) {
             Some(fh) => fh.clone(),
             None => {
-                let fh = Filehandle::new(file.clone(), Self::get_filehandle_id(file), self.fsid, self.fsid);
+                let fh = Filehandle::new(
+                    file.clone(),
+                    Self::get_filehandle_id(file),
+                    self.fsid,
+                    self.fsid,
+                );
                 let mut db = db.lock().unwrap();
                 db.insert(fh.clone());
                 fh
@@ -228,8 +242,11 @@ impl FileManager {
     pub fn root_fh(&self, db: &mut Arc<Mutex<FilehandleDb>>) -> Box<Filehandle> {
         Box::new(Self::get_filehandle(&self, &self.root.clone(), db))
     }
-    
-    pub fn reset_current_fh_to_root(&mut self, db: &mut Arc<Mutex<FilehandleDb>>) -> &Box<Filehandle> {
+
+    pub fn reset_current_fh_to_root(
+        &mut self,
+        db: &mut Arc<Mutex<FilehandleDb>>,
+    ) -> &Box<Filehandle> {
         self.current_fh = Some(self.root_fh(db));
         &self.current_fh.as_ref().unwrap()
     }
@@ -238,7 +255,11 @@ impl FileManager {
         &self.current_fh.as_ref().unwrap().id
     }
 
-    pub fn set_current_fh(&mut self, fh_id: &Vec<u8>, db: &mut Arc<Mutex<FilehandleDb>>) -> Result<&Filehandle, VfsError> {
+    pub fn set_current_fh(
+        &mut self,
+        fh_id: &Vec<u8>,
+        db: &mut Arc<Mutex<FilehandleDb>>,
+    ) -> Result<&Filehandle, VfsError> {
         match Self::get_filehandle_by_id(fh_id, db) {
             Some(fh) => {
                 self.current_fh = Some(Box::new(fh.clone()));
@@ -253,16 +274,17 @@ impl FileManager {
         }
     }
 
-    pub fn filehandle_attrs(&self, attr_request: &Vec<FileAttr>) -> (Vec<FileAttr>, Vec<FileAttrValue>) {
+    pub fn filehandle_attrs(
+        &self,
+        attr_request: &Vec<FileAttr>,
+    ) -> (Vec<FileAttr>, Vec<FileAttrValue>) {
         let mut answer_attrs = Vec::new();
         let mut attrs = Vec::new();
 
         for fileattr in attr_request {
             match fileattr {
                 FileAttr::SupportedAttrs => {
-                    attrs.push(FileAttrValue::SupportedAttrs(
-                        self.attr_supported_attrs(),
-                    ));
+                    attrs.push(FileAttrValue::SupportedAttrs(self.attr_supported_attrs()));
                     answer_attrs.push(FileAttr::SupportedAttrs);
                 }
                 FileAttr::Type => {
@@ -286,9 +308,7 @@ impl FileManager {
                     answer_attrs.push(FileAttr::LinkSupport);
                 }
                 FileAttr::SymlinkSupport => {
-                    attrs.push(FileAttrValue::SymlinkSupport(
-                        self.attr_symlink_support(),
-                    ));
+                    attrs.push(FileAttrValue::SymlinkSupport(self.attr_symlink_support()));
                     answer_attrs.push(FileAttr::SymlinkSupport);
                 }
                 FileAttr::NamedAttr => {
@@ -304,8 +324,7 @@ impl FileManager {
                     answer_attrs.push(FileAttr::Fsid);
                 }
                 FileAttr::UniqueHandles => {
-                    attrs
-                        .push(FileAttrValue::UniqueHandles(self.attr_unique_handles()));
+                    attrs.push(FileAttrValue::UniqueHandles(self.attr_unique_handles()));
                     answer_attrs.push(FileAttr::UniqueHandles);
                 }
                 FileAttr::FhExpireType => {
@@ -333,9 +352,7 @@ impl FileManager {
                     answer_attrs.push(FileAttr::Owner);
                 }
                 FileAttr::OwnerGroup => {
-                    attrs.push(FileAttrValue::OwnerGroup(
-                        self.attr_owner_group().clone(),
-                    ));
+                    attrs.push(FileAttrValue::OwnerGroup(self.attr_owner_group().clone()));
                     answer_attrs.push(FileAttr::OwnerGroup);
                 }
                 FileAttr::SpaceUsed => {
@@ -440,7 +457,8 @@ impl FileManager {
         // modified.  The server MAY return the object's time_metadata attribute
         // for this attribute's value but only if the file system object cannot
         // be updated more frequently than the resolution of time_metadata.
-        (self.current_fh.as_ref().unwrap().attr_time_modify.seconds * 1000000000 + self.current_fh.as_ref().unwrap().attr_time_modify.nseconds as i64) as u64
+        (self.current_fh.as_ref().unwrap().attr_time_modify.seconds * 1000000000
+            + self.current_fh.as_ref().unwrap().attr_time_modify.nseconds as i64) as u64
     }
 
     pub fn attr_size(&self) -> u64 {

@@ -1,12 +1,11 @@
-
 extern crate serde_xdr;
-pub mod rpc_proto;
 pub mod nfs4_proto;
+pub mod rpc_proto;
 pub mod utils;
 
-use std::io::Cursor;
 use bytes::{Buf, BytesMut};
 use serde_xdr::{from_reader, to_writer, CompatDeserializationError};
+use std::io::Cursor;
 use tokio_util::codec::{Decoder, Encoder};
 use tracing::{debug, event, instrument, trace, Level};
 
@@ -17,17 +16,16 @@ pub struct NFSProtoCodec {}
 
 const MAX: usize = 8 * 1024 * 1024;
 
-
 impl NFSProtoCodec {
     pub fn new() -> NFSProtoCodec {
         NFSProtoCodec {}
     }
-  }
+}
 
 impl Decoder for NFSProtoCodec {
     type Item = RpcCallMsg;
     type Error = std::io::Error;
-    
+
     #[instrument(skip(self), name = "client")]
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         let mut message_data = Vec::new();
@@ -41,20 +39,20 @@ impl Decoder for NFSProtoCodec {
             // Read the frame: https://datatracker.ietf.org/doc/html/rfc1057#section-10
             let mut header_bytes = [0u8; 4];
             header_bytes.copy_from_slice(&src[..4]);
-            
+
             let fragment_header = u32::from_be_bytes(header_bytes) as usize;
             is_last = (fragment_header & (1 << 31)) > 0;
             let length = (fragment_header & ((1 << 31) - 1)) as usize;
-            
+
             // Check that the length is not too large to avoid a denial of
             // service attack where the server runs out of memory.
             if length > MAX {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
-                    format!("Frame of length {} is too large.", length)
+                    format!("Frame of length {} is too large.", length),
                 ));
             }
-                        
+
             if src.len() < 4 + length {
                 // The full string has not yet arrived.
                 src.reserve(4 + length - src.len());
@@ -64,13 +62,16 @@ impl Decoder for NFSProtoCodec {
             src.advance(4 + length);
 
             message_data.extend_from_slice(&fragment[..]);
-            trace!(length = length, is_last = is_last, "Finishing Reading fragment");
-            
+            trace!(
+                length = length,
+                is_last = is_last,
+                "Finishing Reading fragment"
+            );
         }
-        
-        RpcCallMsg::from_bytes(message_data).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
-            .map(|msg| Some(msg))
 
+        RpcCallMsg::from_bytes(message_data)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+            .map(|msg| Some(msg))
     }
 }
 
@@ -78,7 +79,9 @@ impl Encoder<Box<RpcReplyMsg>> for NFSProtoCodec {
     type Error = std::io::Error;
 
     fn encode(&mut self, message: Box<RpcReplyMsg>, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let buffer_message = message.to_bytes().map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        let buffer_message = message
+            .to_bytes()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         let buffer_header = u32::to_be_bytes(buffer_message.len() as u32 + (1 << 31));
         // debug!("Encoding message : {:?}", buffer_message);
         // Reserve space in the buffer.
@@ -90,8 +93,6 @@ impl Encoder<Box<RpcReplyMsg>> for NFSProtoCodec {
         Ok(())
     }
 }
-
-
 
 pub fn from_bytes(buffer: Vec<u8>) -> Result<RpcCallMsg, anyhow::Error> {
     let mut cursor = Cursor::new(buffer);

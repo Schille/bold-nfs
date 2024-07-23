@@ -1,7 +1,13 @@
 use std::{
-    alloc::System, env::Args, fs::File, io::Read, process, sync::{Arc, Mutex, MutexGuard}
+    alloc::System,
+    env::Args,
+    fs::File,
+    io::{Read, SeekFrom},
+    process,
+    sync::{Arc, Mutex, MutexGuard},
 };
 
+use byteorder::ReadBytesExt;
 use serde_xdr::to_writer;
 use tracing_subscriber::field::debug;
 use vfs::VfsPath;
@@ -131,12 +137,10 @@ impl NFS40Server {
                 return Err(NfsStat4::Nfs4errServerfault);
             }
             Ok(mut fmanager) => {
-                
                 let cfmanger = fmanager.clone();
                 let dir_fh = cfmanger.current_fh.as_ref().unwrap();
                 let dir = dir_fh.file.read_dir().unwrap();
-    
-                
+
                 let mut fnames = Vec::new();
                 let mut filehandles = Vec::new();
                 let dircount: usize = args.dircount as usize;
@@ -146,7 +150,6 @@ impl NFS40Server {
                 let cfmanger = fmanager.clone();
                 // get a list of filenames and filehandles
                 for (i, entry) in dir.enumerate() {
-                
                     let name = entry.filename();
                     fnames.push(name.clone());
                     // if the cookie value is progressed, we add only subsequent filehandles
@@ -155,21 +158,32 @@ impl NFS40Server {
                         // we need to know the definitve size of the output of the XDR message here, but how?
                         dircount_actual = dircount_actual + 8 + name.len() + 5;
                         maxcount_actual = maxcount_actual + 200;
-                        if dircount == 0 || (dircount > dircount_actual && maxcount > maxcount_actual) {
-                            filehandles.push((i + 1, cfmanger.get_filehandle(&entry, &mut fmanager.db)));
+                        if dircount == 0
+                            || (dircount > dircount_actual && maxcount > maxcount_actual)
+                        {
+                            filehandles
+                                .push((i + 1, cfmanger.get_filehandle(&entry, &mut fmanager.db)));
                         }
                     }
                 }
-                
-                
+
                 // get a seed of this directory, concat all files names
-                let seed: String = fnames.iter().map(|s| s.as_str().chars().collect::<Vec<_>>()).flatten().collect();
+                let seed: String = fnames
+                    .iter()
+                    .map(|s| s.as_str().chars().collect::<Vec<_>>())
+                    .flatten()
+                    .collect();
                 // take only every nth char to create a cookie verifier
-                let mut cookieverf = seed.as_bytes().into_iter().step_by(seed.len() / 8 + 1).map(|k| k.clone()).collect::<Vec<_>>();
+                let mut cookieverf = seed
+                    .as_bytes()
+                    .into_iter()
+                    .step_by(seed.len() / 8 + 1)
+                    .map(|k| k.clone())
+                    .collect::<Vec<_>>();
                 if args.cookie != 0 && cookieverf != args.cookieverf {
                     return Err(NfsStat4::Nfs4errNotSame);
-                } 
-                
+                }
+
                 // if this directory is empty, we can't create a cookie verifier based on the dir contents
                 // setting it to a default value
                 if cookieverf.len() == 0 {
@@ -195,13 +209,20 @@ impl NFS40Server {
                             attrmask: answer_attrs,
                             attr_vals: attrs,
                         },
-                        nextentry: if tnextentry.is_some() { Some(Box::new(tnextentry.unwrap())) } else { None },
+                        nextentry: if tnextentry.is_some() {
+                            Some(Box::new(tnextentry.unwrap()))
+                        } else {
+                            None
+                        },
                     };
                     added_entries += 1;
                     tnextentry = Some(entry);
                 }
                 let eof = {
-                    if tnextentry.is_some() && (tnextentry.clone().unwrap().cookie + added_entries) >= fnames.len() as u64 { 
+                    if tnextentry.is_some()
+                        && (tnextentry.clone().unwrap().cookie + added_entries)
+                            >= fnames.len() as u64
+                    {
                         true
                     } else if tnextentry.is_none() {
                         true
@@ -218,16 +239,9 @@ impl NFS40Server {
                     },
                     cookieverf: cookieverf.as_slice().try_into().unwrap(),
                 })))
-
-                
-
-
-                
-
             }
         }
     }
-
 
     fn lookup(&mut self, args: &Lookup4args) -> Result<NfsResOp4, NfsStat4> {
         let fmanager = self.fmanager.lock();
@@ -256,7 +270,7 @@ impl NFS40Server {
                 let _ = fmanager.set_current_fh(&filehandle.unwrap().id, &mut cfmanager.db);
 
                 Ok(NfsResOp4::Oplookup(Lookup4res {
-                    status: NfsStat4::Nfs4Ok
+                    status: NfsStat4::Nfs4Ok,
                 }))
             }
         }
@@ -340,7 +354,12 @@ impl NFSProtoImpl for NFS40Server {
                                 access: args.access,
                             })));
                         }
-                        NfsArgOp::Opclose(_) => todo!(),
+                        NfsArgOp::Opclose(_) => {
+                            resarray.push(NfsResOp4::Opclose(Close4res::OpenStateid(Stateid4 {
+                                seqid: 0,
+                                other: [0; 12],
+                            })));
+                        }
                         NfsArgOp::Opcommit(_) => todo!(),
                         NfsArgOp::Opcreate(_) => todo!(),
                         NfsArgOp::Opdelegpurge(_) => todo!(),
@@ -377,19 +396,17 @@ impl NFSProtoImpl for NFS40Server {
                         NfsArgOp::Oplock(_) => todo!(),
                         NfsArgOp::Oplockt(_) => todo!(),
                         NfsArgOp::Oplocku(_) => todo!(),
-                        NfsArgOp::Oplookup(args) => {
-                            match self.lookup(args) {
-                                Ok(res) => resarray.push(res),
-                                Err(e) => {
-                                    return ReplyBody::MsgAccepted(AcceptedReply {
-                                        verf: OpaqueAuth::AuthNull(Vec::<u8>::new()),
-                                        reply_data: AcceptBody::Success(Compound4res {
-                                            status: e,
-                                            tag: "".to_string(),
-                                            resarray: Vec::new(),
-                                        }),
-                                    });
-                                }
+                        NfsArgOp::Oplookup(args) => match self.lookup(args) {
+                            Ok(res) => resarray.push(res),
+                            Err(e) => {
+                                return ReplyBody::MsgAccepted(AcceptedReply {
+                                    verf: OpaqueAuth::AuthNull(Vec::<u8>::new()),
+                                    reply_data: AcceptBody::Success(Compound4res {
+                                        status: e,
+                                        tag: "".to_string(),
+                                        resarray: Vec::new(),
+                                    }),
+                                });
                             }
                         },
                         NfsArgOp::Oplookupp(_) => todo!(),
@@ -410,40 +427,48 @@ impl NFSProtoImpl for NFS40Server {
                                 }
                                 Ok(mut fmanager) => {
                                     let mut cfmanager = fmanager.clone();
-                                    let mut path = fmanager.current_fh.as_ref().unwrap().path.clone();
-                                    let file = args.claim;
+                                    // open sets the current filehandle to the looked up filehandle
+                                    let path = fmanager.current_fh.as_ref().unwrap().path.clone();
+                                    let file = &args.claim;
+
                                     match file {
                                         // this is open for reading
                                         OpenClaim4::File(file) => {
-                                            Ok(NfsResOp4::Opopen(Open4res::Resok4(Open4resok {
-                                                stateid: Stateid4 {
-                                                    seqid: 0,
-                                                    other: 0,
-                                                },
-                                                cinfo: ChangeInfo4 {
-                                                    atomic: false,
-                                                    before: 0,
-                                                    after: 0,
+                                            let fh_path = {
+                                                if path == "/" {
+                                                    format!("{}{}", path, file)
+                                                } else {
+                                                    format!("{}/{}", path, file)
+                                                }
+                                            };
 
-                                                },
-                                                rflags: OPEN4_RESULT_CONFIRM,
-                                                attrset: Vec::new(),
-                                                delegation: OpenDelegation4::Read(OpenReadDelegation4 {
+                                            println!("## open {:?}", fh_path);
+                                            let filehandle = FileManager::get_filehandle_by_path(
+                                                &fh_path,
+                                                &mut cfmanager.db,
+                                            );
+                                            let _ = fmanager.set_current_fh(
+                                                &filehandle.unwrap().id,
+                                                &mut cfmanager.db,
+                                            );
+
+                                            resarray.push(NfsResOp4::Opopen(Open4res::Resok4(
+                                                Open4resok {
                                                     stateid: Stateid4 {
                                                         seqid: 0,
-                                                        other: 0,
+                                                        other: [0; 12],
                                                     },
-                                                    recall: false,
-                                                    permissions: Nfsace4 {
-                                                        acetype: 0,
-                                                        flag: 0,
-                                                        access_mask: 0,
-                                                        who: "".to_string(),
+                                                    cinfo: ChangeInfo4 {
+                                                        atomic: false,
+                                                        before: 0,
+                                                        after: 0,
                                                     },
-                                                }),
-                                            }))
-                                            );
-                                        },
+                                                    rflags: OPEN4_RESULT_CONFIRM,
+                                                    attrset: Vec::new(),
+                                                    delegation: OpenDelegation4::None,
+                                                },
+                                            )))
+                                        }
                                         // everything else is not supported
                                         _ => {
                                             todo!()
@@ -451,10 +476,18 @@ impl NFSProtoImpl for NFS40Server {
                                     }
                                 }
                             }
-                            
-                        },
+                        }
                         NfsArgOp::Opopenattr(_) => todo!(),
-                        NfsArgOp::OpopenConfirm(_) => todo!(),
+                        NfsArgOp::OpopenConfirm(_) => {
+                            resarray.push(NfsResOp4::OpopenConfirm(OpenConfirm4res::Resok4(
+                                OpenConfirm4resok {
+                                    open_stateid: Stateid4 {
+                                        seqid: 0,
+                                        other: [0; 12],
+                                    },
+                                },
+                            )));
+                        }
                         NfsArgOp::OpopenDowngrade(_) => todo!(),
                         NfsArgOp::Opputfh(args) => {
                             match self.put_current_filehandle(&args.object) {
@@ -485,20 +518,47 @@ impl NFSProtoImpl for NFS40Server {
                                 });
                             }
                         },
-                        NfsArgOp::Opread(_) => todo!(),
-                        NfsArgOp::Opreaddir(args) => {
-                            match self.read_directory(&args) {
-                                Ok(res) => resarray.push(res),
+                        NfsArgOp::Opread(args) => {
+                            let fmanager = self.fmanager.lock();
+                            match fmanager {
                                 Err(e) => {
+                                    println!("Err {:?}", e);
                                     return ReplyBody::MsgAccepted(AcceptedReply {
                                         verf: OpaqueAuth::AuthNull(Vec::<u8>::new()),
                                         reply_data: AcceptBody::Success(Compound4res {
-                                            status: e,
+                                            status: NfsStat4::Nfs4errServerfault,
                                             tag: "".to_string(),
                                             resarray: Vec::new(),
                                         }),
                                     });
                                 }
+                                Ok(mut fmanager) => {
+                                    let fh = fmanager.current_fh.as_ref().unwrap();
+                                    let mut buffer: Vec<u8> = vec![0; args.count as usize];
+                                    let mut rfile = fh.file.open_file().unwrap();
+                                    rfile.seek(SeekFrom::Start(args.offset)).unwrap();
+                                    let _ = rfile.read_exact(&mut buffer);
+
+                                    resarray.push(NfsResOp4::Opread(Read4res::Resok4(
+                                        Read4resok {
+                                            eof: true,
+                                            data: buffer,
+                                        },
+                                    )));
+                                }
+                            }
+                        }
+                        NfsArgOp::Opreaddir(args) => match self.read_directory(&args) {
+                            Ok(res) => resarray.push(res),
+                            Err(e) => {
+                                return ReplyBody::MsgAccepted(AcceptedReply {
+                                    verf: OpaqueAuth::AuthNull(Vec::<u8>::new()),
+                                    reply_data: AcceptBody::Success(Compound4res {
+                                        status: e,
+                                        tag: "".to_string(),
+                                        resarray: Vec::new(),
+                                    }),
+                                });
                             }
                         },
                         NfsArgOp::Opreadlink(_) => todo!(),

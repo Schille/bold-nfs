@@ -1,15 +1,14 @@
-
-extern crate serde_xdr;
 extern crate serde_bytes;
-use super::utils::{file_attrs_to_bitmap};
+extern crate serde_xdr;
+use super::utils::file_attrs_to_bitmap;
 
-use num_derive::{FromPrimitive, ToPrimitive};    
+use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::{FromPrimitive, ToBytes, ToPrimitive};
 
-use serde::ser::{SerializeTuple, SerializeSeq};
 use bytes::Bytes;
-use serde::{de, Deserializer,Serializer, Serialize};
-use serde_derive::{Serialize, Deserialize};
+use serde::ser::{SerializeSeq, SerializeTuple};
+use serde::{de, Deserializer, Serialize, Serializer};
+use serde_derive::{Deserialize, Serialize};
 // use serde::{Deserialize, Deserializer};
 
 /*
@@ -49,7 +48,7 @@ const NFS4_UINT32_MAX: u32 = 0xffffffff;
  */
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToPrimitive)]
 #[repr(u32)]
- pub enum NfsFtype4 {
+pub enum NfsFtype4 {
     Nf4Undef = 0,     /* undefined */
     Nf4reg = 1,       /* Regular File */
     Nf4dir = 2,       /* Directory */
@@ -136,10 +135,7 @@ pub enum NfsStat4 {
     Nfs4errCbPathDown = 10048,        /* callback path down       */
 }
 
-
-pub struct FileAttrFlags{
-
-}
+pub struct FileAttrFlags {}
 
 /*
  * Basic data types
@@ -198,7 +194,7 @@ pub struct Settime4 {
  *  FSID pub structure for major/minor
  */
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
- pub struct Fsid4 {
+pub struct Fsid4 {
     pub major: u64,
     pub minor: u64,
 }
@@ -346,7 +342,7 @@ pub const MODE4_XOTH: u32 = 0x001; /* execute permission: other */
  * file types NF4BLK and NF4CHR.
  */
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
- pub struct Specdata4 {
+pub struct Specdata4 {
     specdata1: u32, /* major device number */
     specdata2: u32, /* minor device number */
 }
@@ -482,18 +478,19 @@ pub const FATTR4_TIME_MODIFY: u32 = 53;
 pub const FATTR4_TIME_MODIFY_SET: u32 = 54;
 pub const FATTR4_MOUNTED_ON_FILEID: u32 = 55;
 
-
 /*
  * File attribute container
  */
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
- pub struct Fattr4 {
-    #[serde(deserialize_with="read_attrs", serialize_with="write_attrs")]
+pub struct Fattr4 {
+    #[serde(deserialize_with = "read_attrs", serialize_with = "write_attrs")]
     pub attrmask: Vec<FileAttr>,
-    #[serde(deserialize_with="read_attr_values", serialize_with="write_attr_values")]
+    #[serde(
+        deserialize_with = "read_attr_values",
+        serialize_with = "write_attr_values"
+    )]
     pub attr_vals: Vec<FileAttrValue>,
 }
-
 
 fn read_attr_values<'de, D>(deserializer: D) -> Result<Vec<FileAttrValue>, D::Error>
 where
@@ -509,11 +506,11 @@ fn write_attr_values<T, S>(v: &T, serializer: S) -> Result<S::Ok, S::Error>
 where
     T: AsRef<[FileAttrValue]>,
     S: Serializer,
-{   
+{
     let attr_values = v.as_ref();
-    
+
     let mut buffer: Vec<u8> = Vec::new();
-    
+
     for val in attr_values {
         // println!("val: {:?}", val);
         match val {
@@ -614,7 +611,7 @@ pub struct ChangeInfo4 {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ClientAddr4 {
-    /* see 
+    /* see
     pub struct rpcb in RFC 1833 */
     pub rnetid: String, /* network id */
     pub raddr: String,  /* universal address */
@@ -635,14 +632,15 @@ pub struct CbClient4 {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Stateid4 {
     pub seqid: u32,
-    pub other: u32,
+    #[serde(with = "serde_xdr::opaque_data::fixed_length")]
+    pub other: [u8; NFS4_OTHER_SIZE as usize],
 }
 
 /*
  * Client ID
  */
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
- pub struct NfsClientId4 {
+pub struct NfsClientId4 {
     #[serde(with = "serde_xdr::opaque_data::fixed_length")]
     pub verifier: [u8; 8],
     pub id: String,
@@ -840,7 +838,7 @@ pub enum FileAttr {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[repr(u32)]
 pub enum FileAttrValue {
-    #[serde(deserialize_with="read_attrs", serialize_with="write_attrs")]
+    #[serde(deserialize_with = "read_attrs", serialize_with = "write_attrs")]
     SupportedAttrs(Vec<FileAttr>) = 0,
     Type(NfsFtype4) = 1,
     FhExpireType(u32) = 2,
@@ -902,7 +900,7 @@ pub enum FileAttrValue {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Getattr4args {
     /* CURRENT_FH: directory or file */
-    #[serde(deserialize_with="read_attrs", serialize_with="write_attrs")]
+    #[serde(deserialize_with = "read_attrs", serialize_with = "write_attrs")]
     pub attr_request: Vec<FileAttr>,
 }
 
@@ -911,7 +909,7 @@ where
     D: serde::Deserializer<'de>,
 {
     let attrs_raw = <Vec<u32> as serde::Deserialize>::deserialize(deserializer).unwrap();
-    
+
     let mut attrs = Vec::new();
     for (idx, segment) in attrs_raw.iter().enumerate() {
         for n in 0..32 {
@@ -987,7 +985,7 @@ pub enum Link4res {
  * For LOCK, transition from open_Owner to new lock_Owner
  */
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
- pub struct OpenToLockOwner4 {
+pub struct OpenToLockOwner4 {
     open_seqid: Seqid4,
     open_stateid: Stateid4,
     lock_seqid: Seqid4,
@@ -998,7 +996,7 @@ pub enum Link4res {
  * For LOCK, existing lock_Owner continues to request file locks
  */
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
- pub struct ExistLockOwner4 {
+pub struct ExistLockOwner4 {
     lock_stateid: Stateid4,
     lock_seqid: Seqid4,
 }
@@ -1014,7 +1012,7 @@ pub enum Locker4 {
  * LOCK/Lockt/Locku: Record lock management
  */
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
- pub struct Lock4args {
+pub struct Lock4args {
     /* CURRENT_FH: file */
     locktype: NfsLockType4,
     reclaim: bool,
@@ -1124,10 +1122,10 @@ pub enum CreateMode4 {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[repr(u32)]
 pub enum CreateHow4 {
-    UNCHECKED4      = 0,
+    UNCHECKED4 = 0,
     // GUARDED4
     Createattrs(Fattr4) = 1,
-        // EXCLUSIVE4
+    // EXCLUSIVE4
     #[serde(with = "serde_xdr::opaque_data::fixed_length")]
     Createverf([u8; 8]) = 2,
 }
@@ -1236,7 +1234,7 @@ pub enum OpenClaim4 {
  * OPEN: Open a file, potentially receiving an open delegation
  */
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
- pub struct Open4args {
+pub struct Open4args {
     pub seqid: Seqid4,
     pub share_access: u32,
     pub share_deny: u32,
@@ -1282,10 +1280,11 @@ pub struct OpenWriteDelegation4 {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-
+#[repr(u32)]
 pub enum OpenDelegation4 {
-    Read(OpenReadDelegation4),
-    Write(OpenWriteDelegation4),
+    None = 0,
+    Read(OpenReadDelegation4) = 1,
+    Write(OpenWriteDelegation4) = 2,
 }
 
 /*
@@ -1306,7 +1305,7 @@ pub struct Open4resok {
     /* Result flags */
     pub rflags: u32,
     /* attribute set for create */
-    #[serde(deserialize_with="read_attrs", serialize_with="write_attrs")]
+    #[serde(deserialize_with = "read_attrs", serialize_with = "write_attrs")]
     pub attrset: Vec<FileAttr>,
     /* Info on any open
     delegation */
@@ -1341,7 +1340,7 @@ pub struct OpenConfirm4args {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct OpenConfirm4resok {
-    open_stateid: Stateid4,
+    pub open_stateid: Stateid4,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1397,15 +1396,16 @@ pub struct PutRootFh4res {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Read4args {
     /* CURRENT_FH: file */
-    stateid: Stateid4,
-    offset: Offset4,
-    count: Count4,
+    pub stateid: Stateid4,
+    pub offset: Offset4,
+    pub count: Count4,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Read4resok {
-    eof: bool,
-    data: Vec<i64>,
+    pub eof: bool,
+    #[serde(with = "serde_bytes_ng")]
+    pub data: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1421,7 +1421,7 @@ pub struct Readdir4args {
     pub cookieverf: [u8; 8],
     pub dircount: Count4,
     pub maxcount: Count4,
-    #[serde(deserialize_with="read_attrs")]
+    #[serde(deserialize_with = "read_attrs")]
     pub attr_request: Vec<FileAttr>,
 }
 
@@ -1582,8 +1582,6 @@ pub struct SetClientId4args {
     pub callback_ident: u32,
 }
 
-
-
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SetClientId4resok {
     pub clientid: Clientid4,
@@ -1671,8 +1669,8 @@ pub struct Illegal4res {
  * Operation arrays
  */
 
- #[derive(Clone, Debug, Deserialize)]
- #[repr(u32)]
+#[derive(Clone, Debug, Deserialize)]
+#[repr(u32)]
 pub enum NfsOpNum4 {
     OpAccess = 3,
     OpClose = 4,
@@ -1748,7 +1746,7 @@ pub enum NfsArgOp4 {
     Opverify(Verify4args),
     Opwrite(Write4args),
     OpreleaseLockOwner(ReleaseLockowner4args),
-    None
+    None,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1847,22 +1845,18 @@ pub enum NfsResOp4 {
     OpreleaseLockOwner(ReleaseLockowner4res) = 39,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)] 
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Compound4args {
     pub tag: String,
     pub minor_version: u32,
     pub argarray: Vec<NfsArgOp>,
 }
 
-
-
-
-
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Compound4res {
     pub status: NfsStat4,
     pub tag: String,
-    #[serde(serialize_with="write_argarray")]
+    #[serde(serialize_with = "write_argarray")]
     pub resarray: Vec<NfsResOp4>,
 }
 
@@ -1874,8 +1868,7 @@ where
     let values = v.as_ref();
     if values.is_empty() {
         return serializer.serialize_none();
-    }
-    else {
+    } else {
         values.serialize(serializer)
     }
 }

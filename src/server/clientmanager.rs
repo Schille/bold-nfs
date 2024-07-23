@@ -1,8 +1,8 @@
-use std::fmt;
-use std::sync::Arc;
 use multi_index_map::MultiIndexMap;
 use rand::distributions::Uniform;
 use rand::Rng;
+use std::fmt;
+use std::sync::Arc;
 
 use crate::proto::nfs4_proto::NfsStat4;
 
@@ -127,7 +127,7 @@ impl ClientManager {
         principal: Option<String>,
     ) -> Result<ClientEntry, ClientManagerError> {
         let db = Arc::get_mut(&mut self.db).unwrap();
-        
+
         let entries = db.get_by_clientid(&client_id);
         let mut old_confirmed: Option<ClientEntry> = None;
         let mut new_confirmed: Option<ClientEntry> = None;
@@ -192,7 +192,6 @@ impl ClientManager {
             Some(ref record) => Some(*record),
             None => None,
         }
-
     }
 }
 
@@ -207,9 +206,6 @@ impl fmt::Display for ClientManagerError {
     }
 }
 
-
-
-
 #[cfg(test)]
 mod tests {
     use std::{
@@ -219,7 +215,10 @@ mod tests {
 
     use rand::{distributions::Alphanumeric, Rng};
 
-    use crate::{proto::nfs4_proto::NfsStat4, server::clientmanager::{ClientCallback, ClientManager}};
+    use crate::{
+        proto::nfs4_proto::NfsStat4,
+        server::clientmanager::{ClientCallback, ClientManager},
+    };
 
     #[test]
     fn test_upsert_clients_no_principals() {
@@ -319,7 +318,7 @@ mod tests {
         let client = manager
             .upsert_client(verifier, id.clone(), callback.clone(), None)
             .unwrap();
-        
+
         let confirmed_client = manager
             .confirm_client(client.clientid, client.setclientid_confirm, None)
             .unwrap();
@@ -415,7 +414,5 @@ mod tests {
         assert!(eps.as_millis() < 50);
         let c_99 = manager.get_client_confirmed(99);
         assert!(c_99.unwrap().confirmed);
-
-        
     }
 }
