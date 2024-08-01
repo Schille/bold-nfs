@@ -1,6 +1,8 @@
+use actix::prelude::*;
 use multi_index_map::MultiIndexMap;
 use rand::distributions::Uniform;
 use rand::Rng;
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -12,6 +14,7 @@ type ClientDb = MultiIndexClientEntryMap;
 pub struct ClientManager {
     db: Arc<ClientDb>,
     client_id_seq: u64,
+    filehandles: HashMap<String, Vec<u8>>,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -42,11 +45,46 @@ pub struct ClientEntry {
     pub confirmed: bool,
 }
 
+impl Actor for ClientManager {
+    type Context = Context<Self>;
+}
+
+#[derive(Message)]
+#[rtype(result = "Result<ClientEntry, ClientManagerError>")]
+pub struct UpsertClientRequest {
+    pub verifier: [u8; 8],
+    pub id: String,
+    pub callback: ClientCallback,
+    pub principal: Option<String>,
+}
+
+#[derive(Message)]
+#[rtype(result = "Result<ClientEntry, ClientManagerError>")]
+pub struct ConfirmClientRequest {
+    pub client_id: u64,
+    pub setclientid_confirm: [u8; 8],
+    pub principal: Option<String>,
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct SetCurrentFilehandleRequest {
+    pub client_addr: String,
+    pub filehandle: Vec<u8>,
+}
+
+#[derive(Message)]
+#[rtype(result = "Option<Vec<u8>>")]
+pub struct GetCurrentFilehandleRequest {
+    pub client_addr: String,
+}
+
 impl ClientManager {
     pub fn new() -> Self {
         ClientManager {
-            db: MultiIndexClientEntryMap::default().into(),
+            db: ClientDb::default().into(),
             client_id_seq: 0,
+            filehandles: HashMap::new(),
         }
     }
 
@@ -55,7 +93,18 @@ impl ClientManager {
         self.client_id_seq
     }
 
-    pub fn upsert_client(
+    fn set_current_fh(&mut self, client_addr: String, filehandle: Vec<u8>) {
+        self.filehandles.insert(client_addr, filehandle);
+    }
+
+    fn get_current_fh(&mut self, client_addr: String) -> Option<Vec<u8>> {
+        match self.filehandles.get(&client_addr) {
+            Some(fh) => Some(fh.clone()),
+            None => None,
+        }
+    }
+
+    fn upsert_client(
         &mut self,
         verifier: [u8; 8],
         id: String,
@@ -120,7 +169,7 @@ impl ClientManager {
         client
     }
 
-    pub fn confirm_client(
+    fn confirm_client(
         &mut self,
         client_id: u64,
         setclientid_confirm: [u8; 8],
@@ -192,6 +241,46 @@ impl ClientManager {
             Some(ref record) => Some(*record),
             None => None,
         }
+    }
+}
+
+impl Handler<UpsertClientRequest> for ClientManager {
+    type Result = Result<ClientEntry, ClientManagerError>;
+
+    fn handle(&mut self, msg: UpsertClientRequest, _ctx: &mut Context<Self>) -> Self::Result {
+        self.upsert_client(msg.verifier, msg.id, msg.callback, msg.principal)
+    }
+}
+
+impl Handler<ConfirmClientRequest> for ClientManager {
+    type Result = Result<ClientEntry, ClientManagerError>;
+
+    fn handle(&mut self, msg: ConfirmClientRequest, _ctx: &mut Context<Self>) -> Self::Result {
+        self.confirm_client(msg.client_id, msg.setclientid_confirm, msg.principal)
+    }
+}
+
+impl Handler<SetCurrentFilehandleRequest> for ClientManager {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: SetCurrentFilehandleRequest,
+        _ctx: &mut Context<Self>,
+    ) -> Self::Result {
+        self.set_current_fh(msg.client_addr, msg.filehandle)
+    }
+}
+
+impl Handler<GetCurrentFilehandleRequest> for ClientManager {
+    type Result = Option<Vec<u8>>;
+
+    fn handle(
+        &mut self,
+        msg: GetCurrentFilehandleRequest,
+        _ctx: &mut Context<Self>,
+    ) -> Self::Result {
+        self.get_current_fh(msg.client_addr)
     }
 }
 

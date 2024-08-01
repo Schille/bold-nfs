@@ -11,6 +11,7 @@ use crate::proto::nfs4_proto::{
     FileAttr, FileAttrValue, Fsid4, NfsFtype4, NfsLease4, NfsStat4, Nfstime4,
     ACL4_SUPPORT_ALLOW_ACL, FH4_PERSISTENT, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR,
 };
+use actix::{Actor, Context, Handler, Message, MessageResult};
 use multi_index_map::MultiIndexMap;
 use vfs::{error::VfsErrorKind, VfsError, VfsPath};
 
@@ -158,128 +159,86 @@ impl Filehandle {
 #[derive(Debug, Clone)]
 pub struct FileManager {
     pub root: VfsPath,
-    pub current_fh: Option<Box<Filehandle>>,
     pub lease_time: u32,
     pub hard_link_support: bool,
     pub symlink_support: bool,
     pub unique_handles: bool,
     pub fsid: u64,
     // database for all managed filehandles
-    pub db: Arc<Mutex<FilehandleDb>>,
+    pub db: FilehandleDb,
+}
+
+impl Actor for FileManager {
+    type Context = Context<Self>;
 }
 
 impl FileManager {
     pub fn new(root: VfsPath, fsid: Option<u64>) -> Self {
         let fsid = fsid.unwrap_or(152);
-        let mut db = Arc::new(Mutex::new(FilehandleDb::default()));
         let fmanager = FileManager {
             root: root.clone(),
-            current_fh: None,
             // lease time in seconds
             lease_time: 60,
             hard_link_support: false,
             symlink_support: false,
             unique_handles: true,
             fsid: fsid,
-            db: db.clone(),
+            db: FilehandleDb::default(),
         };
-        let _ = fmanager.get_filehandle(&root, &mut db);
         fmanager
     }
 
-    fn get_filehandle_id(path: &VfsPath) -> Vec<u8> {
+    fn get_filehandle_id(&self, path: &VfsPath) -> Vec<u8> {
         let mut p: &str = path.as_str();
 
         if p.is_empty() {
             p = "/";
         }
+        // TODO this does not work for long, just a dirty temporary solution
         let mut id: Vec<u8> = iter::repeat(0).take(128 - p.len()).collect();
         id.extend(p.as_bytes().to_vec());
         id
     }
 
-    fn get_filehandle_by_id<'a>(
-        id: &'a Vec<u8>,
-        db: &mut Arc<Mutex<FilehandleDb>>,
-    ) -> Option<Filehandle> {
-        let db = db.lock().unwrap();
-        match db.get_by_id(id) {
+    fn get_filehandle_by_id(&self, id: &Vec<u8>) -> Option<Filehandle> {
+        match self.db.get_by_id(id) {
             Some(fh) => Some(fh.clone()),
             None => None,
         }
     }
 
-    pub fn get_filehandle_by_path<'a>(
-        path: &String,
-        db: &mut Arc<Mutex<FilehandleDb>>,
-    ) -> Option<Filehandle> {
-        let db = db.lock().unwrap();
+    pub fn get_filehandle_by_path(&self, path: &String) -> Option<Filehandle> {
         print!("get_filehandle_by_path: {}", path);
-        match db.get_by_path(path) {
+        match self.db.get_by_path(path) {
             Some(fh) => Some(fh.clone()),
             None => None,
         }
     }
 
-    pub fn get_filehandle(&self, file: &VfsPath, db: &mut Arc<Mutex<FilehandleDb>>) -> Filehandle {
-        let id = Self::get_filehandle_id(file);
-        match Self::get_filehandle_by_id(&id, db) {
+    pub fn get_filehandle(&mut self, file: &VfsPath) -> Filehandle {
+        let id = self.get_filehandle_id(file);
+        match self.get_filehandle_by_id(&id) {
             Some(fh) => fh.clone(),
             None => {
-                let fh = Filehandle::new(
-                    file.clone(),
-                    Self::get_filehandle_id(file),
-                    self.fsid,
-                    self.fsid,
-                );
-                let mut db = db.lock().unwrap();
-                db.insert(fh.clone());
+                let fh = Filehandle::new(file.clone(), id, self.fsid, self.fsid);
+                self.db.insert(fh.clone());
                 fh
             }
         }
     }
 
-    pub fn root_fh(&self, db: &mut Arc<Mutex<FilehandleDb>>) -> Box<Filehandle> {
-        Box::new(Self::get_filehandle(&self, &self.root.clone(), db))
-    }
-
-    pub fn reset_current_fh_to_root(
-        &mut self,
-        db: &mut Arc<Mutex<FilehandleDb>>,
-    ) -> &Box<Filehandle> {
-        self.current_fh = Some(self.root_fh(db));
-        &self.current_fh.as_ref().unwrap()
-    }
-
-    pub fn current_fh_id(&mut self) -> &Vec<u8> {
-        &self.current_fh.as_ref().unwrap().id
-    }
-
-    pub fn set_current_fh(
-        &mut self,
-        fh_id: &Vec<u8>,
-        db: &mut Arc<Mutex<FilehandleDb>>,
-    ) -> Result<&Filehandle, VfsError> {
-        match Self::get_filehandle_by_id(fh_id, db) {
-            Some(fh) => {
-                self.current_fh = Some(Box::new(fh.clone()));
-                Ok(self.current_fh.as_ref().unwrap())
-            }
-            None => {
-                self.current_fh = None;
-                Err(VfsError::from(VfsErrorKind::Other(
-                    "Filehandle does not exist".to_string(),
-                )))
-            }
-        }
+    pub fn root_fh(&mut self) -> Box<Filehandle> {
+        Box::new(self.get_filehandle(&self.root.clone()))
     }
 
     pub fn filehandle_attrs(
         &self,
         attr_request: &Vec<FileAttr>,
-    ) -> (Vec<FileAttr>, Vec<FileAttrValue>) {
+        filehande: &Vec<u8>,
+    ) -> Box<(Vec<FileAttr>, Vec<FileAttrValue>)> {
         let mut answer_attrs = Vec::new();
         let mut attrs = Vec::new();
+        let filehandle = self.get_filehandle_by_id(filehande).unwrap();
 
         for fileattr in attr_request {
             match fileattr {
@@ -288,7 +247,7 @@ impl FileManager {
                     answer_attrs.push(FileAttr::SupportedAttrs);
                 }
                 FileAttr::Type => {
-                    attrs.push(FileAttrValue::Type(self.attr_type()));
+                    attrs.push(FileAttrValue::Type(filehandle.attr_type));
                     answer_attrs.push(FileAttr::Type);
                 }
                 FileAttr::LeaseTime => {
@@ -296,11 +255,11 @@ impl FileManager {
                     answer_attrs.push(FileAttr::LeaseTime);
                 }
                 FileAttr::Change => {
-                    attrs.push(FileAttrValue::Change(self.attr_change()));
+                    attrs.push(FileAttrValue::Change(filehandle.attr_change));
                     answer_attrs.push(FileAttr::Change);
                 }
                 FileAttr::Size => {
-                    attrs.push(FileAttrValue::Size(self.attr_size()));
+                    attrs.push(FileAttrValue::Size(filehandle.attr_size));
                     answer_attrs.push(FileAttr::Size);
                 }
                 FileAttr::LinkSupport => {
@@ -320,7 +279,7 @@ impl FileManager {
                     answer_attrs.push(FileAttr::AclSupport);
                 }
                 FileAttr::Fsid => {
-                    attrs.push(FileAttrValue::Fsid(self.attr_fsid()));
+                    attrs.push(FileAttrValue::Fsid(filehandle.attr_fsid));
                     answer_attrs.push(FileAttr::Fsid);
                 }
                 FileAttr::UniqueHandles => {
@@ -336,7 +295,7 @@ impl FileManager {
                     answer_attrs.push(FileAttr::RdattrError);
                 }
                 FileAttr::Fileid => {
-                    attrs.push(FileAttrValue::Fileid(self.attr_fileid()));
+                    attrs.push(FileAttrValue::Fileid(filehandle.attr_fileid));
                     answer_attrs.push(FileAttr::Fileid);
                 }
                 FileAttr::Mode => {
@@ -348,46 +307,48 @@ impl FileManager {
                     answer_attrs.push(FileAttr::Numlinks);
                 }
                 FileAttr::Owner => {
-                    attrs.push(FileAttrValue::Owner(self.attr_owner().clone()));
+                    attrs.push(FileAttrValue::Owner(filehandle.attr_owner.clone()));
                     answer_attrs.push(FileAttr::Owner);
                 }
                 FileAttr::OwnerGroup => {
-                    attrs.push(FileAttrValue::OwnerGroup(self.attr_owner_group().clone()));
+                    attrs.push(FileAttrValue::OwnerGroup(
+                        filehandle.attr_owner_group.clone(),
+                    ));
                     answer_attrs.push(FileAttr::OwnerGroup);
                 }
                 FileAttr::SpaceUsed => {
-                    attrs.push(FileAttrValue::SpaceUsed(self.attr_space_used()));
+                    attrs.push(FileAttrValue::SpaceUsed(filehandle.attr_space_used));
                     answer_attrs.push(FileAttr::SpaceUsed);
                 }
                 FileAttr::TimeAccess => {
-                    attrs.push(FileAttrValue::TimeAccess(self.attr_time_access()));
+                    attrs.push(FileAttrValue::TimeAccess(filehandle.attr_time_access));
                     answer_attrs.push(FileAttr::TimeAccess);
                 }
                 FileAttr::TimeMetadata => {
-                    attrs.push(FileAttrValue::TimeMetadata(self.attr_time_metadata()));
+                    attrs.push(FileAttrValue::TimeMetadata(filehandle.attr_time_metadata));
                     answer_attrs.push(FileAttr::TimeMetadata);
                 }
                 FileAttr::TimeModify => {
-                    attrs.push(FileAttrValue::TimeModify(self.attr_time_modify()));
+                    attrs.push(FileAttrValue::TimeModify(filehandle.attr_time_modify));
                     answer_attrs.push(FileAttr::TimeModify);
                 }
-                FileAttr::MountedOnFileid => {
-                    attrs.push(FileAttrValue::MountedOnFileid(
-                        self.attr_mounted_on_fileid(),
-                    ));
-                    answer_attrs.push(FileAttr::MountedOnFileid);
-                }
+                // FileAttr::MountedOnFileid => {
+                //     attrs.push(FileAttrValue::MountedOnFileid(
+                //         filehandle.attr_mounted_on_fileid,
+                //     ));
+                //     answer_attrs.push(FileAttr::MountedOnFileid);
+                // }
                 _ => {}
             }
         }
-        (answer_attrs, attrs)
+        Box::new((answer_attrs, attrs))
     }
 
-    pub fn attr_filehandle(&self) -> &Vec<u8> {
-        // filehandle:
-        // The filehandle of this object (primarily for READDIR requests).
-        &self.current_fh.as_ref().unwrap().id
-    }
+    // pub fn attr_filehandle(&self) -> &Vec<u8> {
+    //     // filehandle:
+    //     // The filehandle of this object (primarily for READDIR requests).
+    //     &self.current_fh.as_ref().unwrap().id
+    // }
 
     pub fn attr_lease_time(&self) -> NfsLease4 {
         self.lease_time
@@ -432,16 +393,16 @@ impl FileManager {
             FileAttr::TimeAccess,
             FileAttr::TimeMetadata,
             FileAttr::TimeModify,
-            FileAttr::MountedOnFileid,
+            // FileAttr::MountedOnFileid,
         ]
     }
 
-    pub fn attr_type(&self) -> NfsFtype4 {
-        // type:
-        // Designates the type of an object in terms of one of a number of
-        // special constants
-        self.current_fh.as_ref().unwrap().attr_type
-    }
+    // pub fn attr_type(&self) -> NfsFtype4 {
+    //     // type:
+    //     // Designates the type of an object in terms of one of a number of
+    //     // special constants
+    //     self.current_fh.as_ref().unwrap().attr_type
+    // }
 
     pub fn attr_expire_type(&self) -> u32 {
         // fh_expire_type:
@@ -450,22 +411,22 @@ impl FileManager {
         FH4_PERSISTENT
     }
 
-    pub fn attr_change(&self) -> u64 {
-        // change:
-        // A value created by the server that the client can use to determine if
-        // file data, directory contents, or attributes of the object have been
-        // modified.  The server MAY return the object's time_metadata attribute
-        // for this attribute's value but only if the file system object cannot
-        // be updated more frequently than the resolution of time_metadata.
-        (self.current_fh.as_ref().unwrap().attr_time_modify.seconds * 1000000000
-            + self.current_fh.as_ref().unwrap().attr_time_modify.nseconds as i64) as u64
-    }
+    // pub fn attr_change(&self) -> u64 {
+    //     // change:
+    //     // A value created by the server that the client can use to determine if
+    //     // file data, directory contents, or attributes of the object have been
+    //     // modified.  The server MAY return the object's time_metadata attribute
+    //     // for this attribute's value but only if the file system object cannot
+    //     // be updated more frequently than the resolution of time_metadata.
+    //     (self.current_fh.as_ref().unwrap().attr_time_modify.seconds * 1000000000
+    //         + self.current_fh.as_ref().unwrap().attr_time_modify.nseconds as i64) as u64
+    // }
 
-    pub fn attr_size(&self) -> u64 {
-        // size:
-        // The size of the object in bytes.
-        self.current_fh.as_ref().unwrap().attr_size
-    }
+    // pub fn attr_size(&self) -> u64 {
+    //     // size:
+    //     // The size of the object in bytes.
+    //     self.current_fh.as_ref().unwrap().attr_size
+    // }
 
     pub fn attr_link_support(&self) -> bool {
         // link_support:
@@ -486,13 +447,13 @@ impl FileManager {
         false
     }
 
-    pub fn attr_fsid(&self) -> Fsid4 {
-        // fsid:
-        // Unique file system identifier for the file system holding this
-        // object.  The fsid attribute has major and minor components, each of
-        // which are of data type uint64_t.
-        self.current_fh.as_ref().unwrap().attr_fsid
-    }
+    // pub fn attr_fsid(&self) -> Fsid4 {
+    //     // fsid:
+    //     // Unique file system identifier for the file system holding this
+    //     // object.  The fsid attribute has major and minor components, each of
+    //     // which are of data type uint64_t.
+    //     self.current_fh.as_ref().unwrap().attr_fsid
+    // }
 
     pub fn attr_unique_handles(&self) -> bool {
         // unique_handles:
@@ -524,11 +485,11 @@ impl FileManager {
         false
     }
 
-    pub fn attr_fileid(&self) -> u64 {
-        // fileid:
-        // A number uniquely identifying the file within the file system.
-        self.current_fh.as_ref().unwrap().attr_fileid
-    }
+    // pub fn attr_fileid(&self) -> u64 {
+    //     // fileid:
+    //     // A number uniquely identifying the file within the file system.
+    //     self.current_fh.as_ref().unwrap().attr_fileid
+    // }
 
     pub fn attr_mode(&self) -> u32 {
         // mode:
@@ -542,48 +503,107 @@ impl FileManager {
         2
     }
 
-    pub fn attr_owner(&self) -> &String {
-        // owner:
-        // The string name of the owner of this object.
-        &self.current_fh.as_ref().unwrap().attr_owner
-    }
+    // pub fn attr_owner(&self) -> &String {
+    //     // owner:
+    //     // The string name of the owner of this object.
+    //     &self.current_fh.as_ref().unwrap().attr_owner
+    // }
 
-    pub fn attr_owner_group(&self) -> String {
-        // owner_group:
-        // The string name of the group ownership of this object.
-        self.current_fh.as_ref().unwrap().attr_owner_group.clone()
-    }
+    // pub fn attr_owner_group(&self) -> String {
+    //     // owner_group:
+    //     // The string name of the group ownership of this object.
+    //     self.current_fh.as_ref().unwrap().attr_owner_group.clone()
+    // }
 
-    pub fn attr_space_used(&self) -> u64 {
-        // space_used:
-        // Number of file system bytes allocated to this object.
-        self.current_fh.as_ref().unwrap().attr_space_used
-    }
+    // pub fn attr_space_used(&self) -> u64 {
+    //     // space_used:
+    //     // Number of file system bytes allocated to this object.
+    //     self.current_fh.as_ref().unwrap().attr_space_used
+    // }
 
-    pub fn attr_time_access(&self) -> Nfstime4 {
-        // time_access:
-        // Represents the time of last access to the object by a READ operation
-        // sent to the server.
-        self.current_fh.as_ref().unwrap().attr_time_access
-    }
+    // pub fn attr_time_access(&self) -> Nfstime4 {
+    //     // time_access:
+    //     // Represents the time of last access to the object by a READ operation
+    //     // sent to the server.
+    //     self.current_fh.as_ref().unwrap().attr_time_access
+    // }
 
-    pub fn attr_time_metadata(&self) -> Nfstime4 {
-        // time_metadata:
-        // The time of last metadata modification of the object.
-        self.current_fh.as_ref().unwrap().attr_time_metadata
-    }
+    // pub fn attr_time_metadata(&self) -> Nfstime4 {
+    //     // time_metadata:
+    //     // The time of last metadata modification of the object.
+    //     self.current_fh.as_ref().unwrap().attr_time_metadata
+    // }
 
-    pub fn attr_time_modify(&self) -> Nfstime4 {
-        // time_modified:
-        // The time of last modification to the object.
-        self.current_fh.as_ref().unwrap().attr_time_modify
-    }
+    // pub fn attr_time_modify(&self) -> Nfstime4 {
+    //     // time_modified:
+    //     // The time of last modification to the object.
+    //     self.current_fh.as_ref().unwrap().attr_time_modify
+    // }
 
-    pub fn attr_mounted_on_fileid(&self) -> u64 {
-        // mounted_on_fileid:
-        // Like fileid, but if the target filehandle is the root of a file
-        // system, this attribute represents the fileid of the underlying
-        // directory.
-        self.current_fh.as_ref().unwrap().attr_fileid
+    // pub fn attr_mounted_on_fileid(&self) -> u64 {
+    //     // mounted_on_fileid:
+    //     // Like fileid, but if the target filehandle is the root of a file
+    //     // system, this attribute represents the fileid of the underlying
+    //     // directory.
+    //     self.current_fh.as_ref().unwrap().attr_fileid
+    // }
+}
+
+#[derive(Message)]
+#[rtype(result = "Box<Filehandle>")]
+pub struct GetRootFilehandleRequest;
+
+impl Handler<GetRootFilehandleRequest> for FileManager {
+    type Result = MessageResult<GetRootFilehandleRequest>;
+
+    fn handle(&mut self, msg: GetRootFilehandleRequest, _ctx: &mut Context<Self>) -> Self::Result {
+        MessageResult(self.root_fh())
+    }
+}
+
+#[derive(Message)]
+#[rtype(result = "Box<Filehandle>")]
+pub struct GetFilehandleRequest {
+    pub path: Option<String>,
+    pub filehandle: Option<Vec<u8>>,
+}
+
+impl Handler<GetFilehandleRequest> for FileManager {
+    type Result = MessageResult<GetFilehandleRequest>;
+
+    fn handle(&mut self, msg: GetFilehandleRequest, _ctx: &mut Context<Self>) -> Self::Result {
+        if msg.filehandle.is_some() {
+            let fh = self.get_filehandle_by_id(&msg.filehandle.unwrap());
+            match fh {
+                Some(fh) => {
+                    return MessageResult(Box::new(fh));
+                }
+                None => {
+                    panic!("Filehandle not found");
+                }
+            }
+        }
+        if msg.path.is_some() {
+            let path = self.root.join(msg.path.unwrap()).unwrap();
+            let fh = self.get_filehandle(&path);
+            return MessageResult(Box::new(fh));
+        } else {
+            MessageResult(self.root_fh())
+        }
+    }
+}
+
+#[derive(Message)]
+#[rtype(result = "Box<(Vec<FileAttr>, Vec<FileAttrValue>)>")]
+pub struct GetFilehandleAttrsRequest {
+    pub filehandle: Vec<u8>,
+    pub attrs_request: Vec<FileAttr>,
+}
+
+impl Handler<GetFilehandleAttrsRequest> for FileManager {
+    type Result = MessageResult<GetFilehandleAttrsRequest>;
+
+    fn handle(&mut self, msg: GetFilehandleAttrsRequest, _ctx: &mut Context<Self>) -> Self::Result {
+        MessageResult(self.filehandle_attrs(&msg.attrs_request, &msg.filehandle))
     }
 }
