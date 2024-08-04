@@ -1,13 +1,7 @@
-use std::{
-    io::{Read, SeekFrom},
-};
+use std::io::{Read, SeekFrom};
 
 use actix::Addr;
 use async_trait::async_trait;
-
-
-
-
 
 use super::{
     clientmanager::{
@@ -15,14 +9,12 @@ use super::{
         SetCurrentFilehandleRequest, UpsertClientRequest,
     },
     filemanager::{FileManager, GetFilehandleAttrsRequest, GetFilehandleRequest},
+    NFSRequest,
 };
-use crate::proto::{
-    nfs4_proto::*,
-    rpc_proto::{*},
-};
+use crate::proto::{nfs4_proto::*, rpc_proto::*};
 
 use super::NFSProtoImpl;
-use tracing::{trace};
+use tracing::trace;
 
 #[derive(Debug, Clone)]
 pub struct NFS40Server {
@@ -92,9 +84,13 @@ impl NFS40Server {
         }
     }
 
-    async fn put_root_filehande(&self, client_addr: String) -> Result<NfsResOp4, NfsStat4> {
-        let resp = self
-            .fmanager
+    async fn put_root_filehande(
+        &self,
+        request: &mut NFSRequest,
+        client_addr: String,
+    ) -> Result<NfsResOp4, NfsStat4> {
+        let file_manager = request.file_manager();
+        let resp = file_manager
             .send(GetFilehandleRequest {
                 path: None,
                 filehandle: None,
@@ -470,7 +466,7 @@ impl NFSProtoImpl for NFS40Server {
         0
     }
 
-    fn null(&self, _: CallBody, _client_addr: String) -> ReplyBody {
+    async fn null(&self, _: CallBody, _: NFSRequest) -> ReplyBody {
         ReplyBody::MsgAccepted(AcceptedReply {
             verf: OpaqueAuth::AuthNull(Vec::<u8>::new()),
             reply_data: AcceptBody::Success(Compound4res {
@@ -481,8 +477,8 @@ impl NFSProtoImpl for NFS40Server {
         })
     }
 
-    async fn compound(&self, msg: CallBody, client_addr: String) -> ReplyBody {
-        trace!("Call body: {:?}", msg);
+    async fn compound(&self, msg: CallBody, request: NFSRequest) -> ReplyBody {
+        trace!("Call body: {:?} for {:?}", msg, request);
         let res = match &msg.args {
             Some(args) => {
                 let mut resarray = Vec::with_capacity(args.argarray.len());

@@ -5,7 +5,6 @@ use super::utils::file_attrs_to_bitmap;
 use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::{FromPrimitive, ToBytes, ToPrimitive};
 
-
 use serde::ser::{SerializeSeq, SerializeTuple};
 use serde::{Serialize, Serializer};
 use serde_derive::{Deserialize, Serialize};

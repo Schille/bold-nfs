@@ -1,5 +1,3 @@
-
-
 use actix::prelude::*;
 use bold::{
     proto::NFSProtoCodec,
@@ -53,11 +51,11 @@ async fn main() {
                 // Reading NFS RPC messages over record marking codec
                 let mut nfs_transport = Framed::new(stream, NFSProtoCodec::new());
                 // clone NFS server to move into the pipeline and actor connects with shared state
-                let service = NFSService::new(nfs_protocol.clone(), addr.to_string());
+                let service = NFSService::new(nfs_protocol.clone());
                 while let msg = nfs_transport.next().await {
                     match msg {
                         Some(Ok(msg)) => {
-                            let resp = service.async_call(msg, addr.to_string()).await;
+                            let resp = service.call(msg, &addr.to_string()).await;
                             match nfs_transport.send(resp).await {
                                 Ok(_) => {
                                     trace!("response sent");
