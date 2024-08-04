@@ -1,9 +1,6 @@
 use std::{
-    collections::HashMap,
-    fs::File,
     hash::{DefaultHasher, Hash, Hasher},
     iter,
-    sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -13,7 +10,7 @@ use crate::proto::nfs4_proto::{
 };
 use actix::{Actor, Context, Handler, Message, MessageResult};
 use multi_index_map::MultiIndexMap;
-use vfs::{error::VfsErrorKind, VfsError, VfsPath};
+use vfs::{VfsPath};
 
 type FilehandleDb = MultiIndexFilehandleMap;
 
@@ -125,15 +122,15 @@ impl Filehandle {
         Fsid4 { major, minor }
     }
 
-    fn attr_mode(file: &VfsPath) -> u32 {
+    fn attr_mode(_file: &VfsPath) -> u32 {
         MODE4_RUSR + MODE4_RGRP + MODE4_ROTH
     }
 
-    fn attr_owner(file: &VfsPath) -> String {
+    fn attr_owner(_file: &VfsPath) -> String {
         "1000".to_string()
     }
 
-    fn attr_owner_group(file: &VfsPath) -> String {
+    fn attr_owner_group(_file: &VfsPath) -> String {
         "1000".to_string()
     }
 
@@ -556,7 +553,7 @@ pub struct GetRootFilehandleRequest;
 impl Handler<GetRootFilehandleRequest> for FileManager {
     type Result = MessageResult<GetRootFilehandleRequest>;
 
-    fn handle(&mut self, msg: GetRootFilehandleRequest, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, _msg: GetRootFilehandleRequest, _ctx: &mut Context<Self>) -> Self::Result {
         MessageResult(self.root_fh())
     }
 }

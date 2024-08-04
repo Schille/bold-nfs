@@ -1,7 +1,4 @@
-use std::{
-    cmp::{max, min},
-    path,
-};
+
 
 use actix::prelude::*;
 use bold::{
@@ -14,9 +11,9 @@ use bold::{
 use futures::sink::SinkExt;
 use tokio::net::TcpListener;
 use tokio_stream::StreamExt;
-use tokio_tower::pipeline;
+
 use tokio_util::codec::Framed;
-use tracing::{error, event, info, span, trace, Instrument, Level};
+use tracing::{error, info, span, trace, Level};
 use vfs::{AltrootFS, PhysicalFS, VfsPath};
 
 #[actix::main]
@@ -52,7 +49,7 @@ async fn main() {
             Ok((stream, addr)) => {
                 let _ = stream.set_nodelay(true);
                 info!(%addr, "Client connected");
-                let span = span!(Level::TRACE, "client");
+                let _span = span!(Level::TRACE, "client");
                 // Reading NFS RPC messages over record marking codec
                 let mut nfs_transport = Framed::new(stream, NFSProtoCodec::new());
                 // clone NFS server to move into the pipeline and actor connects with shared state

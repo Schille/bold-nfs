@@ -7,7 +7,7 @@ use bytes::{Buf, BytesMut};
 use serde_xdr::{from_reader, to_writer, CompatDeserializationError};
 use std::io::Cursor;
 use tokio_util::codec::{Decoder, Encoder};
-use tracing::{debug, event, instrument, trace, Level};
+use tracing::{instrument, trace};
 
 use self::rpc_proto::{RpcCallMsg, RpcReplyMsg};
 

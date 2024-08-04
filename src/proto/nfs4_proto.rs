@@ -5,9 +5,9 @@ use super::utils::file_attrs_to_bitmap;
 use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::{FromPrimitive, ToBytes, ToPrimitive};
 
-use bytes::Bytes;
+
 use serde::ser::{SerializeSeq, SerializeTuple};
-use serde::{de, Deserializer, Serialize, Serializer};
+use serde::{Serialize, Serializer};
 use serde_derive::{Deserialize, Serialize};
 // use serde::{Deserialize, Deserializer};
 
@@ -496,8 +496,8 @@ fn read_attr_values<'de, D>(deserializer: D) -> Result<Vec<FileAttrValue>, D::Er
 where
     D: serde::Deserializer<'de>,
 {
-    let attrs_raw = <Vec<u32> as serde::Deserialize>::deserialize(deserializer).unwrap();
-    let mut attrs = Vec::new();
+    let _attrs_raw = <Vec<u32> as serde::Deserialize>::deserialize(deserializer).unwrap();
+    let attrs = Vec::new();
     // TODO
     Ok(attrs)
 }
