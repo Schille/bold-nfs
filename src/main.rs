@@ -2,8 +2,7 @@ use actix::prelude::*;
 use bold::{
     proto::NFSProtoCodec,
     server::{
-        clientmanager::ClientManager, filemanager::FileManager, nfs40::NFS40Server, NFSProtoImpl,
-        NFSService,
+        clientmanager::{ClientManager, ClientManagerHandler}, filemanager::{FileManager, FileManagerHandler}, nfs40::NFS40Server, request::NfsRequest, NFSService, NfsProtoImpl
     },
 };
 use futures::sink::SinkExt;
@@ -35,11 +34,11 @@ async fn main() {
     let listener = TcpListener::bind(bind).await.unwrap();
     info!(%bind, "Server listening");
     // start a global Actix ClientManager actor
-    let client_manager = ClientManager::new().start();
-    let file_manager = FileManager::new(root, None).start();
+    let client_manager_addr = ClientManager::new().start();
+    let file_manager_addr = FileManager::new(root, None).start();
     // dynamic dispatch to NFSv4.0 server implementation
     // TODO add support for multiple NFSv4 minor versions
-    let nfs_protocol = NFS40Server::new(client_manager.clone(), file_manager.clone());
+    let nfs_protocol = NFS40Server::new(client_manager_addr.clone(), file_manager_addr.clone());
     // let nfs_server = NFSService::new(nfs_protocol);
 
     loop {
@@ -52,10 +51,17 @@ async fn main() {
                 let mut nfs_transport = Framed::new(stream, NFSProtoCodec::new());
                 // clone NFS server to move into the pipeline and actor connects with shared state
                 let service = NFSService::new(nfs_protocol.clone());
-                while let msg = nfs_transport.next().await {
+                loop {
+                    let msg = nfs_transport.next().await;
                     match msg {
                         Some(Ok(msg)) => {
-                            let resp = service.call(msg, &addr.to_string()).await;
+                            // create a NFS request
+                            let request = NfsRequest::new(
+                                addr.to_string(),
+                                ClientManagerHandler::new(client_manager_addr.clone()),
+                                FileManagerHandler::new(file_manager_addr.clone()),
+                            );
+                            let resp = service.call(msg, request).await;
                             match nfs_transport.send(resp).await {
                                 Ok(_) => {
                                     trace!("response sent");
@@ -71,16 +77,12 @@ async fn main() {
                             break;
                         }
                         None => {
-                            error!("couldn't get message: {:?}", "EOF");
+                            // client closed connection
+                            info!(%addr, "Client disconnected");
                             break;
                         }
                     }
                 }
-                // tokio::spawn(
-                //     async move { pipeline::Server::new(nfs_transport, service) }
-                //         .instrument(span)
-                //         .await,
-                // );
             }
             Err(e) => error!("couldn't get client: {:?}", e),
         }

@@ -79,7 +79,7 @@ impl Filehandle {
         }
         Filehandle {
             id,
-            path: path,
+            path,
             attr_type: Self::attr_type(&file),
             attr_change: Self::attr_change(&file),
             attr_size: Self::attr_size(&file),
@@ -114,8 +114,8 @@ impl Filehandle {
     fn attr_fileid(file: &VfsPath) -> u64 {
         let mut hasher = DefaultHasher::new();
         file.as_str().hash(&mut hasher);
-        let fileid = u64::try_from(hasher.finish()).unwrap();
-        fileid
+        
+        u64::try_from(hasher.finish()).unwrap()
     }
 
     fn attr_fsid(major: u64, minor: u64) -> Fsid4 {
@@ -172,17 +172,17 @@ impl Actor for FileManager {
 impl FileManager {
     pub fn new(root: VfsPath, fsid: Option<u64>) -> Self {
         let fsid = fsid.unwrap_or(152);
-        let fmanager = FileManager {
+        
+        FileManager {
             root: root.clone(),
             // lease time in seconds
             lease_time: 60,
             hard_link_support: false,
             symlink_support: false,
             unique_handles: true,
-            fsid: fsid,
+            fsid,
             db: FilehandleDb::default(),
-        };
-        fmanager
+        }
     }
 
     fn get_filehandle_id(&self, path: &VfsPath) -> Vec<u8> {
@@ -198,18 +198,12 @@ impl FileManager {
     }
 
     fn get_filehandle_by_id(&self, id: &Vec<u8>) -> Option<Filehandle> {
-        match self.db.get_by_id(id) {
-            Some(fh) => Some(fh.clone()),
-            None => None,
-        }
+        self.db.get_by_id(id).cloned()
     }
 
     pub fn get_filehandle_by_path(&self, path: &String) -> Option<Filehandle> {
         print!("get_filehandle_by_path: {}", path);
-        match self.db.get_by_path(path) {
-            Some(fh) => Some(fh.clone()),
-            None => None,
-        }
+        self.db.get_by_path(path).cloned()
     }
 
     pub fn get_filehandle(&mut self, file: &VfsPath) -> Filehandle {
@@ -231,11 +225,11 @@ impl FileManager {
     pub fn filehandle_attrs(
         &self,
         attr_request: &Vec<FileAttr>,
-        filehande: &Vec<u8>,
+        filehandle_id: &Vec<u8>,
     ) -> Box<(Vec<FileAttr>, Vec<FileAttrValue>)> {
         let mut answer_attrs = Vec::new();
         let mut attrs = Vec::new();
-        let filehandle = self.get_filehandle_by_id(filehande).unwrap();
+        let filehandle = self.get_filehandle_by_id(filehandle_id).unwrap();
 
         for fileattr in attr_request {
             match fileattr {
@@ -583,7 +577,7 @@ impl Handler<GetFilehandleRequest> for FileManager {
         if msg.path.is_some() {
             let path = self.root.join(msg.path.unwrap()).unwrap();
             let fh = self.get_filehandle(&path);
-            return MessageResult(Box::new(fh));
+            MessageResult(Box::new(fh))
         } else {
             MessageResult(self.root_fh())
         }
@@ -593,7 +587,7 @@ impl Handler<GetFilehandleRequest> for FileManager {
 #[derive(Message)]
 #[rtype(result = "Box<(Vec<FileAttr>, Vec<FileAttrValue>)>")]
 pub struct GetFilehandleAttrsRequest {
-    pub filehandle: Vec<u8>,
+    pub filehandle_id: Vec<u8>,
     pub attrs_request: Vec<FileAttr>,
 }
 
@@ -601,13 +595,13 @@ impl Handler<GetFilehandleAttrsRequest> for FileManager {
     type Result = MessageResult<GetFilehandleAttrsRequest>;
 
     fn handle(&mut self, msg: GetFilehandleAttrsRequest, _ctx: &mut Context<Self>) -> Self::Result {
-        MessageResult(self.filehandle_attrs(&msg.attrs_request, &msg.filehandle))
+        MessageResult(self.filehandle_attrs(&msg.attrs_request, &msg.filehandle_id))
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FileManagerHandler {
-    fmanager: Addr<FileManager>,
+    pub fmanager: Addr<FileManager>,
 }
 
 impl FileManagerHandler {
@@ -653,3 +647,41 @@ impl FileManagerHandler {
         self.send_filehandle_request(req).await
     }
 }
+
+// #[cfg(test)]
+// mod tests {
+//     use actix::{Actor, System};
+//     use vfs::{AltrootFS, PhysicalFS, VfsPath};
+
+//     use crate::server::{
+//         clientmanager::{ClientManager, ClientManagerHandler},
+//         NfsRequest,
+//     };
+
+//     use super::{FileManager, FileManagerHandler};
+
+//     #[test]
+//     fn set_current_filehandle() {
+//         let root: VfsPath = AltrootFS::new(VfsPath::new(PhysicalFS::new(
+//             std::env::current_dir().unwrap(),
+//         )))
+//         .into();
+
+//         let sys = System::new();
+
+//         sys.block_on(async move {
+//             let client_manager_addr = ClientManager::new().start();
+//             let file_manager_addr = FileManager::new(root, None).start();
+
+//             let request = NfsRequest::new(
+//                 "127.0.0.1:936".to_string(),
+//                 ClientManagerHandler::new(client_manager_addr.clone()),
+//                 FileManagerHandler::new(file_manager_addr.clone()),
+//             );
+
+//             let fh_id = vec![1u8, 2u8, 3u8];
+//             request.set_filehandle_id(fh_id.clone());
+//             assert_eq!(request.current_filehandle_id().unwrap(), fh_id);
+//         });
+//     }
+// }

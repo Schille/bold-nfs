@@ -5,6 +5,7 @@ use rand::Rng;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
+use tracing::trace;
 
 use crate::proto::nfs4_proto::NfsStat4;
 
@@ -70,13 +71,19 @@ pub struct ConfirmClientRequest {
 #[rtype(result = "()")]
 pub struct SetCurrentFilehandleRequest {
     pub client_addr: String,
-    pub filehandle: Vec<u8>,
+    pub filehandle_id: Vec<u8>,
 }
 
 #[derive(Message)]
 #[rtype(result = "Option<Vec<u8>>")]
 pub struct GetCurrentFilehandleRequest {
     pub client_addr: String,
+}
+
+impl Default for ClientManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ClientManager {
@@ -98,10 +105,7 @@ impl ClientManager {
     }
 
     fn get_current_fh(&mut self, client_addr: String) -> Option<Vec<u8>> {
-        match self.filehandles.get(&client_addr) {
-            Some(fh) => Some(fh.clone()),
-            None => None,
-        }
+        self.filehandles.get(&client_addr).cloned()
     }
 
     fn upsert_client(
@@ -118,7 +122,7 @@ impl ClientManager {
             // this is an update attempt
             let mut entries_to_remove = Vec::new();
             for entry in entries.clone() {
-                if entry.confirmed == true && entry.principal != principal {
+                if entry.confirmed && entry.principal != principal {
                     // For any confirmed record with the same id string x, if the recorded principal does
                     // not match that of the SETCLIENTID call, then the server returns an
                     // NFS4ERR_CLID_INUSE error.
@@ -126,7 +130,7 @@ impl ClientManager {
                         nfs_error: NfsStat4::Nfs4errClidInuse,
                     });
                 }
-                if entry.confirmed == false {
+                if !entry.confirmed {
                     entries_to_remove.push(entry.clone());
                 }
                 existing_clientid = Some(entry.clientid);
@@ -155,12 +159,12 @@ impl ClientManager {
             (0..8).map(|_| rng.sample(Uniform::new(0, 255))).collect();
         let setclientid_confirm: [u8; 8] = setclientid_confirm_vec.try_into().unwrap();
         let client = ClientEntry {
-            principal: principal,
-            verifier: verifier,
-            id: id,
+            principal,
+            verifier,
+            id,
             clientid: client_id,
-            callback: callback,
-            setclientid_confirm: setclientid_confirm,
+            callback,
+            setclientid_confirm,
             confirmed: false,
         };
 
@@ -196,7 +200,7 @@ impl ClientManager {
                     nfs_error: NfsStat4::Nfs4errClidInuse,
                 });
             }
-            if entry.confirmed == true && entry.setclientid_confirm != setclientid_confirm {
+            if entry.confirmed && entry.setclientid_confirm != setclientid_confirm {
                 old_confirmed = Some(entry.clone());
             }
             if entry.setclientid_confirm == setclientid_confirm {
@@ -236,9 +240,9 @@ impl ClientManager {
     pub fn get_client_confirmed(&mut self, clientid: u64) -> Option<&ClientEntry> {
         let db = Arc::get_mut(&mut self.db).unwrap();
         let records = db.get_by_clientid(&clientid);
-        let _match = records.iter().find(|r| r.confirmed == true);
+        let _match = records.iter().find(|r| r.confirmed);
         match _match {
-            Some(ref record) => Some(*record),
+            Some(record) => Some(record),
             None => None,
         }
     }
@@ -268,7 +272,7 @@ impl Handler<SetCurrentFilehandleRequest> for ClientManager {
         msg: SetCurrentFilehandleRequest,
         _ctx: &mut Context<Self>,
     ) -> Self::Result {
-        self.set_current_fh(msg.client_addr, msg.filehandle)
+        self.set_current_fh(msg.client_addr, msg.filehandle_id)
     }
 }
 
@@ -292,6 +296,33 @@ pub struct ClientManagerError {
 impl fmt::Display for ClientManagerError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "ClientManagerError: {:?}", self.nfs_error)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ClientManagerHandler {
+    pub cmanager: Addr<ClientManager>,
+}
+
+impl ClientManagerHandler {
+    pub fn new(cmanager: Addr<ClientManager>) -> Self {
+        ClientManagerHandler { cmanager }
+    }
+
+    pub async fn set_current_filehandle(&self, client_addr: &String, filehandle_id: &Vec<u8>) {
+        let resp = self
+            .cmanager
+            .send(SetCurrentFilehandleRequest {
+                client_addr: client_addr.clone(),
+                filehandle_id: filehandle_id.clone(),
+            })
+            .await;
+        match resp {
+            Ok(_) => {}
+            Err(e) => {
+                trace!("couldn't set filehandle: {:?}", e);
+            }
+        }
     }
 }
 
@@ -354,7 +385,7 @@ mod tests {
         let confirmed_client = manager
             .confirm_client(client.clientid, same_client.setclientid_confirm, None)
             .unwrap();
-        assert_eq!(confirmed_client.confirmed, true);
+        assert!(confirmed_client.confirmed);
         assert_eq!(confirmed_client.clientid, client.clientid);
 
         let other_callback = super::ClientCallback {
@@ -411,12 +442,12 @@ mod tests {
         let confirmed_client = manager
             .confirm_client(client.clientid, client.setclientid_confirm, None)
             .unwrap();
-        assert_eq!(confirmed_client.confirmed, true);
+        assert!(confirmed_client.confirmed);
         assert_eq!(confirmed_client.clientid, client.clientid);
         let confirmed_client = manager
             .confirm_client(client.clientid, client.setclientid_confirm, None)
             .unwrap();
-        assert_eq!(confirmed_client.confirmed, true);
+        assert!(confirmed_client.confirmed);
         assert_eq!(confirmed_client.clientid, client.clientid);
     }
 
@@ -455,7 +486,7 @@ mod tests {
         assert_eq!(same_client.callback, callback);
         assert_eq!(same_client.clientid, client.clientid);
         assert_eq!(same_client.principal, Some("Linux".to_string()));
-        assert_eq!(same_client.confirmed, true);
+        assert!(same_client.confirmed);
     }
 
     #[tokio::test]

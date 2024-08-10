@@ -16,6 +16,12 @@ pub struct NFSProtoCodec {}
 
 const MAX: usize = 8 * 1024 * 1024;
 
+impl Default for NFSProtoCodec {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NFSProtoCodec {
     pub fn new() -> NFSProtoCodec {
         NFSProtoCodec {}
@@ -42,7 +48,7 @@ impl Decoder for NFSProtoCodec {
 
             let fragment_header = u32::from_be_bytes(header_bytes) as usize;
             is_last = (fragment_header & (1 << 31)) > 0;
-            let length = (fragment_header & ((1 << 31) - 1)) as usize;
+            let length = fragment_header & ((1 << 31) - 1);
 
             // Check that the length is not too large to avoid a denial of
             // service attack where the server runs out of memory.
@@ -71,7 +77,7 @@ impl Decoder for NFSProtoCodec {
 
         RpcCallMsg::from_bytes(message_data)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
-            .map(|msg| Some(msg))
+            .map(Some)
     }
 }
 

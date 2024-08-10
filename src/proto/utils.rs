@@ -7,15 +7,15 @@ pub fn file_attrs_to_bitmap(file_attrs: &Vec<FileAttr>) -> Result<Vec<u32>, anyh
     let mut idxs = file_attrs
         .iter()
         .map(|attr| {
-            let idx = ToPrimitive::to_u32(attr).unwrap();
-            idx
+            
+            ToPrimitive::to_u32(attr).unwrap()
         })
         .collect::<Vec<u32>>();
 
     idxs.reverse();
     let mut segment = 0_u32;
-    while !idxs.is_empty() {
-        let idx = idxs.pop().unwrap();
+    while let Some(idx) = idxs.pop() {
+        
         // println!("idx: {}", idx);
         // println!("idx.div_ceil(31) {:?}", idx.div_ceil(31));
         if (idx.div_ceil(31) as i16) - 1 > attrs.len() as i16 {

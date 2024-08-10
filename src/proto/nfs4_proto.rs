@@ -587,7 +587,7 @@ where
                 buffer.extend_from_slice(v.as_bytes());
             }
             FileAttrValue::SpaceUsed(v) => {
-                buffer.extend_from_slice((*v as u64).to_be_bytes().as_ref());
+                buffer.extend_from_slice(v.to_be_bytes().as_ref());
             }
             FileAttrValue::Numlinks(v) => {
                 buffer.extend_from_slice(v.to_be_bytes().as_ref());
@@ -1866,7 +1866,7 @@ where
 {
     let values = v.as_ref();
     if values.is_empty() {
-        return serializer.serialize_none();
+        serializer.serialize_none()
     } else {
         values.serialize(serializer)
     }
