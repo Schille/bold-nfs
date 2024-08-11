@@ -5,10 +5,7 @@ pub mod operation;
 pub mod request;
 pub mod response;
 
-use actix::Addr;
 use async_trait::async_trait;
-use clientmanager::ClientManager;
-use filemanager::FileManager;
 
 use request::NfsRequest;
 use tracing::debug;
@@ -22,7 +19,7 @@ use crate::{
 pub trait NfsProtoImpl: Sync {
     fn minor_version(&self) -> u32;
 
-    fn new(cmanager: Addr<ClientManager>, fmanager: Addr<FileManager>) -> Self;
+    fn new() -> Self;
 
     fn hash(&self) -> u64;
 

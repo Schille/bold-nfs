@@ -114,7 +114,7 @@ impl Filehandle {
     fn attr_fileid(file: &VfsPath) -> u64 {
         let mut hasher = DefaultHasher::new();
         file.as_str().hash(&mut hasher);
-        
+
         u64::try_from(hasher.finish()).unwrap()
     }
 
@@ -172,7 +172,7 @@ impl Actor for FileManager {
 impl FileManager {
     pub fn new(root: VfsPath, fsid: Option<u64>) -> Self {
         let fsid = fsid.unwrap_or(152);
-        
+
         FileManager {
             root: root.clone(),
             // lease time in seconds
@@ -628,7 +628,10 @@ impl FileManagerHandler {
         self.send_filehandle_request(req).await
     }
 
-    pub async fn get_filehandle_for_id(&self, id: Vec<u8>) -> Result<Box<Filehandle>, MailboxError> {
+    pub async fn get_filehandle_for_id(
+        &self,
+        id: Vec<u8>,
+    ) -> Result<Box<Filehandle>, MailboxError> {
         let req = GetFilehandleRequest {
             path: None,
             filehandle: Some(id),

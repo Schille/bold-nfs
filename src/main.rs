@@ -2,7 +2,11 @@ use actix::prelude::*;
 use bold::{
     proto::NFSProtoCodec,
     server::{
-        clientmanager::{ClientManager, ClientManagerHandler}, filemanager::{FileManager, FileManagerHandler}, nfs40::NFS40Server, request::NfsRequest, NFSService, NfsProtoImpl
+        clientmanager::ClientManagerHandle,
+        filemanager::{FileManager, FileManagerHandler},
+        nfs40::NFS40Server,
+        request::NfsRequest,
+        NFSService, NfsProtoImpl,
     },
 };
 use futures::sink::SinkExt;
@@ -33,12 +37,12 @@ async fn main() {
     let bind = "127.0.0.1:11112";
     let listener = TcpListener::bind(bind).await.unwrap();
     info!(%bind, "Server listening");
-    // start a global Actix ClientManager actor
-    let client_manager_addr = ClientManager::new().start();
+    // start a global ClientManager actor
+    let client_mananger_handle = ClientManagerHandle::new();
     let file_manager_addr = FileManager::new(root, None).start();
     // dynamic dispatch to NFSv4.0 server implementation
     // TODO add support for multiple NFSv4 minor versions
-    let nfs_protocol = NFS40Server::new(client_manager_addr.clone(), file_manager_addr.clone());
+    let nfs_protocol = NFS40Server::new();
     // let nfs_server = NFSService::new(nfs_protocol);
 
     loop {
@@ -58,7 +62,7 @@ async fn main() {
                             // create a NFS request
                             let request = NfsRequest::new(
                                 addr.to_string(),
-                                ClientManagerHandler::new(client_manager_addr.clone()),
+                                client_mananger_handle.clone(),
                                 FileManagerHandler::new(file_manager_addr.clone()),
                             );
                             let resp = service.call(msg, request).await;

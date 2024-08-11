@@ -10,7 +10,10 @@ use super::{NfsResOp4, NfsStat4, Read4args, Read4res, Read4resok};
 #[async_trait]
 impl NfsOperation for Read4args {
     async fn execute(&self, request: NfsRequest) -> NfsOpResponse {
-        debug!("Operation 25: READ - Read from File {:?}, with request {:?}", self, request);
+        debug!(
+            "Operation 25: READ - Read from File {:?}, with request {:?}",
+            self, request
+        );
         let current_filehandle = request.current_filehandle().await;
         let filehandle = match current_filehandle {
             Some(filehandle) => filehandle,

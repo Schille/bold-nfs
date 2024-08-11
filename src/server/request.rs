@@ -1,5 +1,5 @@
 use super::{
-    clientmanager::ClientManagerHandler,
+    clientmanager::ClientManagerHandle,
     filemanager::{FileManagerHandler, Filehandle},
 };
 
@@ -8,7 +8,7 @@ pub struct NfsRequest {
     client_addr: String,
     filehandle_id: Option<Vec<u8>>,
     // shared state for client manager between connections
-    cmanager: ClientManagerHandler,
+    cmanager: ClientManagerHandle,
     // local filehandle manager
     fmanager: FileManagerHandler,
 }
@@ -16,7 +16,7 @@ pub struct NfsRequest {
 impl NfsRequest {
     pub fn new(
         client_addr: String,
-        cmanager: ClientManagerHandler,
+        cmanager: ClientManagerHandle,
         fmanager: FileManagerHandler,
     ) -> Self {
         NfsRequest {
@@ -48,7 +48,7 @@ impl NfsRequest {
         }
     }
 
-    pub fn client_manager(&self) -> ClientManagerHandler {
+    pub fn client_manager(&self) -> ClientManagerHandle {
         self.cmanager.clone()
     }
 
@@ -62,13 +62,10 @@ impl NfsRequest {
 
     // this is called when the request is done
     pub async fn close(&self) {
-        match self.filehandle_id.as_ref() {
-            Some(fh) => {
-                self.cmanager
-                    .set_current_filehandle(&self.client_addr, fh)
-                    .await
-            }
-            None => (),
+        if let Some(fh) = self.filehandle_id.as_ref() {
+            self.cmanager
+                .set_current_filehandle(self.client_addr.clone(), fh.clone())
+                .await;
         }
     }
 }

@@ -1,14 +1,6 @@
-
-
-use actix::Addr;
 use async_trait::async_trait;
 
-use super::{
-    clientmanager::{ClientManager},
-    filemanager::{FileManager},
-    request::NfsRequest,
-    response::NfsOpResponse,
-};
+use super::{request::NfsRequest, response::NfsOpResponse};
 use crate::{
     proto::{nfs4_proto::*, rpc_proto::*},
     server::operation::NfsOperation,
@@ -28,15 +20,10 @@ mod op_set_clientid;
 mod op_set_clientid_confirm;
 
 use super::NfsProtoImpl;
-use tracing::{error};
+use tracing::error;
 
 #[derive(Debug, Clone)]
-pub struct NFS40Server {
-    // shared state for client manager between connections
-    cmanager: Addr<ClientManager>,
-    // local filehandle manager
-    fmanager: Addr<FileManager>,
-}
+pub struct NFS40Server;
 
 impl NFS40Server {
     async fn put_root_filehandle(&self, mut request: NfsRequest) -> NfsOpResponse {
@@ -87,8 +74,8 @@ impl NFS40Server {
 
 #[async_trait]
 impl NfsProtoImpl for NFS40Server {
-    fn new(cmanager: Addr<ClientManager>, fmanager: Addr<FileManager>) -> Self {
-        NFS40Server { cmanager, fmanager }
+    fn new() -> Self {
+        Self {}
     }
 
     fn hash(&self) -> u64 {

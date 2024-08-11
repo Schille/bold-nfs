@@ -11,7 +11,10 @@ use super::{
 #[async_trait]
 impl NfsOperation for Access4args {
     async fn execute(&self, request: NfsRequest) -> NfsOpResponse {
-        debug!("Operation 3: ACCESS - Check Access Rights {:?}, with request {:?}", self, request);
+        debug!(
+            "Operation 3: ACCESS - Check Access Rights {:?}, with request {:?}",
+            self, request
+        );
         NfsOpResponse {
             request,
             result: Some(NfsResOp4::OpAccess(Access4res::Resok4(Access4resok {

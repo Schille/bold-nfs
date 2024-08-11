@@ -14,7 +14,10 @@ use super::{Lookup4args, NfsStat4};
 #[async_trait]
 impl NfsOperation for Lookup4args {
     async fn execute(&self, mut request: NfsRequest) -> NfsOpResponse {
-        debug!("Operation 15: LOOKUP - Look Up Filename {:?}, with request {:?}", self, request);
+        debug!(
+            "Operation 15: LOOKUP - Look Up Filename {:?}, with request {:?}",
+            self, request
+        );
         let current_fh = request.current_filehandle().await;
         let filehandle = match current_fh {
             Some(filehandle) => filehandle,

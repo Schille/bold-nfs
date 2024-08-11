@@ -13,7 +13,10 @@ use super::{NfsResOp4, NfsStat4, Open4args, OpenClaim4, Stateid4};
 #[async_trait]
 impl NfsOperation for Open4args {
     async fn execute(&self, mut request: NfsRequest) -> NfsOpResponse {
-        debug!("Operation 18: OPEN - Open a Regular File {:?}, with request {:?}", self, request);
+        debug!(
+            "Operation 18: OPEN - Open a Regular File {:?}, with request {:?}",
+            self, request
+        );
         // open sets the current filehandle to the looked up filehandle
         let current_filehandle = request.current_filehandle().await;
         let filehandle = match current_filehandle {

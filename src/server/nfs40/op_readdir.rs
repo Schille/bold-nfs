@@ -15,7 +15,10 @@ use super::{
 #[async_trait]
 impl NfsOperation for Readdir4args {
     async fn execute(&self, request: NfsRequest) -> NfsOpResponse {
-        debug!("Operation 26: READDIR - Read Directory {:?}, with request {:?}", self, request);
+        debug!(
+            "Operation 26: READDIR - Read Directory {:?}, with request {:?}",
+            self, request
+        );
         let current_fh = request.current_filehandle().await;
         let dir_fh = match current_fh {
             Some(filehandle) => filehandle,
@@ -81,7 +84,8 @@ impl NfsOperation for Readdir4args {
         let mut cookieverf = seed
             .as_bytes()
             .iter()
-            .step_by(seed.len() / 8 + 1).copied()
+            .step_by(seed.len() / 8 + 1)
+            .copied()
             .collect::<Vec<_>>();
         if self.cookie != 0 && cookieverf != self.cookieverf {
             error!("Nfs4errNotSame");
@@ -148,7 +152,9 @@ impl NfsOperation for Readdir4args {
                 && (tnextentry.clone().unwrap().cookie + added_entries) >= fnames.len() as u64
             {
                 true
-            } else { tnextentry.is_none() }
+            } else {
+                tnextentry.is_none()
+            }
         };
 
         NfsOpResponse {

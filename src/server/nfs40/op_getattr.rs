@@ -11,7 +11,10 @@ use super::{Fattr4, Getattr4args, Getattr4res, Getattr4resok, NfsResOp4};
 #[async_trait]
 impl NfsOperation for Getattr4args {
     async fn execute(&self, request: NfsRequest) -> NfsOpResponse {
-        debug!("Operation 9: GETATTR - Get Attributes {:?}, with request {:?}", self, request);
+        debug!(
+            "Operation 9: GETATTR - Get Attributes {:?}, with request {:?}",
+            self, request
+        );
         let filehandle = request.current_filehandle_id();
         match filehandle {
             None => {
