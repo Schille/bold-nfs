@@ -7,7 +7,7 @@ use super::{
     clientmanager::{ClientManager},
     filemanager::{FileManager},
     request::NfsRequest,
-    response::NfsResponse,
+    response::NfsOpResponse,
 };
 use crate::{
     proto::{nfs4_proto::*, rpc_proto::*},
@@ -28,7 +28,7 @@ mod op_set_clientid;
 mod op_set_clientid_confirm;
 
 use super::NfsProtoImpl;
-use tracing::{error, trace};
+use tracing::{error};
 
 #[derive(Debug, Clone)]
 pub struct NFS40Server {
@@ -39,11 +39,11 @@ pub struct NFS40Server {
 }
 
 impl NFS40Server {
-    async fn put_root_filehandle(&self, mut request: NfsRequest) -> NfsResponse {
+    async fn put_root_filehandle(&self, mut request: NfsRequest) -> NfsOpResponse {
         match request.file_manager().get_root_filehandle().await {
             Ok(filehandle) => {
                 request.set_filehandle_id(filehandle.id.clone());
-                NfsResponse {
+                NfsOpResponse {
                     request,
                     result: Some(NfsResOp4::Opputrootfh(PutRootFh4res {
                         status: NfsStat4::Nfs4Ok,
@@ -53,7 +53,7 @@ impl NFS40Server {
             }
             Err(e) => {
                 error!("Err {:?}", e);
-                NfsResponse {
+                NfsOpResponse {
                     request,
                     result: None,
                     status: NfsStat4::Nfs4errServerfault,
@@ -62,10 +62,10 @@ impl NFS40Server {
         }
     }
 
-    fn get_current_filehandle(&self, request: NfsRequest) -> NfsResponse {
+    fn get_current_filehandle(&self, request: NfsRequest) -> NfsOpResponse {
         let fh = request.current_filehandle_id();
         match fh {
-            Some(filehandle_id) => NfsResponse {
+            Some(filehandle_id) => NfsOpResponse {
                 request,
                 result: Some(NfsResOp4::Opgetfh(GetFh4res::Resok4(GetFh4resok {
                     object: filehandle_id,
@@ -75,7 +75,7 @@ impl NFS40Server {
             // current filehandle not set for client
             None => {
                 error!("Filehandle not set");
-                NfsResponse {
+                NfsOpResponse {
                     request,
                     result: None,
                     status: NfsStat4::Nfs4errServerfault,
@@ -110,15 +110,16 @@ impl NfsProtoImpl for NFS40Server {
     }
 
     async fn compound(&self, msg: CallBody, mut request: NfsRequest) -> (NfsRequest, ReplyBody) {
-        trace!("Call body: {:?}", msg);
         let res = match &msg.args {
             Some(args) => {
                 let mut resarray = Vec::with_capacity(args.argarray.len());
+                // The server will process the COMPOUND procedure by evaluating each of
+                // the operations within the COMPOUND procedure in order.
                 for arg in &args.argarray {
                     let response = match arg {
                         // these should never be called
                         NfsArgOp::OpUndef0 | NfsArgOp::OpUndef1 | NfsArgOp::OpUndef2 => todo!(),
-                        // these are the actual operations
+                        // these are actual operations
                         NfsArgOp::Opgetfh(_) => self.get_current_filehandle(request),
                         NfsArgOp::Opsetclientid(args) => args.execute(request).await,
                         NfsArgOp::OpAccess(args) => args.execute(request).await,

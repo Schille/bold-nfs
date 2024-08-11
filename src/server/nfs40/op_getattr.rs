@@ -1,21 +1,22 @@
 use async_trait::async_trait;
-use tracing::error;
+use tracing::{debug, error};
 
 use crate::server::{
     filemanager::GetFilehandleAttrsRequest, nfs40::NfsStat4, operation::NfsOperation,
-    request::NfsRequest, response::NfsResponse,
+    request::NfsRequest, response::NfsOpResponse,
 };
 
 use super::{Fattr4, Getattr4args, Getattr4res, Getattr4resok, NfsResOp4};
 
 #[async_trait]
 impl NfsOperation for Getattr4args {
-    async fn execute(&self, request: NfsRequest) -> NfsResponse {
+    async fn execute(&self, request: NfsRequest) -> NfsOpResponse {
+        debug!("Operation 9: GETATTR - Get Attributes {:?}, with request {:?}", self, request);
         let filehandle = request.current_filehandle_id();
         match filehandle {
             None => {
                 error!("None filehandle");
-                NfsResponse {
+                NfsOpResponse {
                     request,
                     result: None,
                     status: NfsStat4::Nfs4errServerfault,
@@ -34,7 +35,7 @@ impl NfsOperation for Getattr4args {
                     Ok(inner) => *inner,
                     Err(e) => {
                         error!("MailboxError {:?}", e);
-                        return NfsResponse {
+                        return NfsOpResponse {
                             request,
                             result: None,
                             status: NfsStat4::Nfs4errServerfault,
@@ -42,7 +43,7 @@ impl NfsOperation for Getattr4args {
                     }
                 };
 
-                NfsResponse {
+                NfsOpResponse {
                     request,
                     result: Some(NfsResOp4::Opgetattr(Getattr4res::Resok4(Getattr4resok {
                         obj_attributes: Fattr4 {

@@ -1,16 +1,17 @@
 use async_trait::async_trait;
-use tracing::error;
+use tracing::{debug, error};
 
 use crate::server::{
     clientmanager::ConfirmClientRequest, operation::NfsOperation, request::NfsRequest,
-    response::NfsResponse,
+    response::NfsOpResponse,
 };
 
 use super::{NfsResOp4, NfsStat4, SetClientIdConfirm4args, SetClientIdConfirm4res};
 
 #[async_trait]
 impl NfsOperation for SetClientIdConfirm4args {
-    async fn execute(&self, request: NfsRequest) -> NfsResponse {
+    async fn execute(&self, request: NfsRequest) -> NfsOpResponse {
+        debug!("Operation 36: SETCLIENTID_CONFIRM - Confirm Client ID {:?}, with request {:?}", self, request);
         let client_id = self.clientid;
         let setclientid_confirm = self.setclientid_confirm;
 
@@ -25,7 +26,7 @@ impl NfsOperation for SetClientIdConfirm4args {
             .await;
         match res {
             Ok(inner) => match inner {
-                Ok(_) => NfsResponse {
+                Ok(_) => NfsOpResponse {
                     request,
                     result: Some(NfsResOp4::OpsetclientidConfirm(SetClientIdConfirm4res {
                         status: NfsStat4::Nfs4Ok,
@@ -34,7 +35,7 @@ impl NfsOperation for SetClientIdConfirm4args {
                 },
                 Err(e) => {
                     error!("Err {:?}", e);
-                    NfsResponse {
+                    NfsOpResponse {
                         request,
                         result: None,
                         status: NfsStat4::Nfs4errServerfault,
@@ -43,7 +44,7 @@ impl NfsOperation for SetClientIdConfirm4args {
             },
             Err(e) => {
                 error!("MailboxError {:?}", e);
-                NfsResponse {
+                NfsOpResponse {
                     request,
                     result: None,
                     status: NfsStat4::Nfs4errServerfault,

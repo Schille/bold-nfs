@@ -38,7 +38,7 @@ impl NfsRequest {
     pub async fn current_filehandle(&self) -> Option<Box<Filehandle>> {
         match self.filehandle_id.as_ref() {
             Some(id) => {
-                let fh = self.fmanager.get_filehandle_for_id(id).await;
+                let fh = self.fmanager.get_filehandle_for_id(id.clone()).await;
                 match fh {
                     Ok(fh) => Some(fh),
                     Err(_) => None,

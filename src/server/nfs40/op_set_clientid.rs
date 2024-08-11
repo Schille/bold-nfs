@@ -1,10 +1,11 @@
 use async_trait::async_trait;
+use tracing::debug;
 
 use crate::server::{
     clientmanager::{ClientCallback, UpsertClientRequest},
     operation::NfsOperation,
     request::NfsRequest,
-    response::NfsResponse,
+    response::NfsOpResponse,
 };
 
 use super::{
@@ -13,7 +14,8 @@ use super::{
 
 #[async_trait]
 impl NfsOperation for SetClientId4args {
-    async fn execute(&self, request: NfsRequest) -> NfsResponse {
+    async fn execute(&self, request: NfsRequest) -> NfsOpResponse {
+        debug!("Operation 35: SETCLIENTID - Negotiate Client ID {:?}, with request {:?}", self, request);
         let callback = ClientCallback {
             program: self.callback.cb_program,
             rnetid: self.callback.cb_location.rnetid.clone(),
@@ -33,7 +35,7 @@ impl NfsOperation for SetClientId4args {
             .await;
         match res {
             Ok(inner) => match inner {
-                Ok(client) => NfsResponse {
+                Ok(client) => NfsOpResponse {
                     request,
                     result: Some(NfsResOp4::Opsetclientid(SetClientId4res::Resok4(
                         SetClientId4resok {
@@ -43,13 +45,13 @@ impl NfsOperation for SetClientId4args {
                     ))),
                     status: NfsStat4::Nfs4Ok,
                 },
-                Err(_e) => NfsResponse {
+                Err(_e) => NfsOpResponse {
                     request,
                     result: None,
                     status: NfsStat4::Nfs4errServerfault,
                 },
             },
-            Err(_) => NfsResponse {
+            Err(_) => NfsOpResponse {
                 request,
                 result: None,
                 status: NfsStat4::Nfs4errServerfault,

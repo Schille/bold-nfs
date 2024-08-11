@@ -8,7 +8,7 @@ use crate::proto::nfs4_proto::{
     FileAttr, FileAttrValue, Fsid4, NfsFtype4, NfsLease4, NfsStat4, Nfstime4,
     ACL4_SUPPORT_ALLOW_ACL, FH4_PERSISTENT, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR,
 };
-use actix::{Actor, Addr, Context, Handler, Message, MessageResult};
+use actix::{Actor, Addr, Context, Handler, MailboxError, Message, MessageResult};
 use multi_index_map::MultiIndexMap;
 use vfs::VfsPath;
 
@@ -612,15 +612,15 @@ impl FileManagerHandler {
     async fn send_filehandle_request(
         &self,
         req: GetFilehandleRequest,
-    ) -> Result<Box<Filehandle>, NfsStat4> {
+    ) -> Result<Box<Filehandle>, MailboxError> {
         let resp = self.fmanager.send(req).await;
         match resp {
             Ok(filehandle) => Ok(filehandle),
-            Err(_) => Err(NfsStat4::Nfs4errServerfault),
+            Err(e) => Err(e),
         }
     }
 
-    pub async fn get_root_filehandle(&self) -> Result<Box<Filehandle>, NfsStat4> {
+    pub async fn get_root_filehandle(&self) -> Result<Box<Filehandle>, MailboxError> {
         let req = GetFilehandleRequest {
             path: None,
             filehandle: None,
@@ -628,10 +628,10 @@ impl FileManagerHandler {
         self.send_filehandle_request(req).await
     }
 
-    pub async fn get_filehandle_for_id(&self, id: &Vec<u8>) -> Result<Box<Filehandle>, NfsStat4> {
+    pub async fn get_filehandle_for_id(&self, id: Vec<u8>) -> Result<Box<Filehandle>, MailboxError> {
         let req = GetFilehandleRequest {
             path: None,
-            filehandle: Some(id.clone()),
+            filehandle: Some(id),
         };
         self.send_filehandle_request(req).await
     }
@@ -639,7 +639,7 @@ impl FileManagerHandler {
     pub async fn get_filehandle_for_path(
         &self,
         path: &String,
-    ) -> Result<Box<Filehandle>, NfsStat4> {
+    ) -> Result<Box<Filehandle>, MailboxError> {
         let req = GetFilehandleRequest {
             path: Some(path.clone()),
             filehandle: None,

@@ -1,11 +1,11 @@
 use async_trait::async_trait;
-use tracing::error;
+use tracing::{debug, error};
 
 use crate::server::{
     filemanager::{GetFilehandleAttrsRequest, GetFilehandleRequest},
     operation::NfsOperation,
     request::NfsRequest,
-    response::NfsResponse,
+    response::NfsOpResponse,
 };
 
 use super::{
@@ -14,13 +14,14 @@ use super::{
 
 #[async_trait]
 impl NfsOperation for Readdir4args {
-    async fn execute(&self, request: NfsRequest) -> NfsResponse {
+    async fn execute(&self, request: NfsRequest) -> NfsOpResponse {
+        debug!("Operation 26: READDIR - Read Directory {:?}, with request {:?}", self, request);
         let current_fh = request.current_filehandle().await;
         let dir_fh = match current_fh {
             Some(filehandle) => filehandle,
             None => {
                 error!("None filehandle");
-                return NfsResponse {
+                return NfsOpResponse {
                     request,
                     result: None,
                     status: NfsStat4::Nfs4errServerfault,
@@ -57,7 +58,7 @@ impl NfsOperation for Readdir4args {
                     match filehandle {
                         Err(_e) => {
                             error!("None filehandle");
-                            return NfsResponse {
+                            return NfsOpResponse {
                                 request,
                                 result: None,
                                 status: NfsStat4::Nfs4errServerfault,
@@ -84,7 +85,7 @@ impl NfsOperation for Readdir4args {
             .collect::<Vec<_>>();
         if self.cookie != 0 && cookieverf != self.cookieverf {
             error!("Nfs4errNotSame");
-            return NfsResponse {
+            return NfsOpResponse {
                 request,
                 result: None,
                 status: NfsStat4::Nfs4errNotSame,
@@ -118,7 +119,7 @@ impl NfsOperation for Readdir4args {
                 Ok(inner) => *inner,
                 Err(e) => {
                     error!("Err {:?}", e);
-                    return NfsResponse {
+                    return NfsOpResponse {
                         request,
                         result: None,
                         status: NfsStat4::Nfs4errServerfault,
@@ -150,7 +151,7 @@ impl NfsOperation for Readdir4args {
             } else { tnextentry.is_none() }
         };
 
-        NfsResponse {
+        NfsOpResponse {
             request,
             result: Some(NfsResOp4::Opreaddir(ReadDir4res::Resok4(ReadDir4resok {
                 reply: DirList4 {

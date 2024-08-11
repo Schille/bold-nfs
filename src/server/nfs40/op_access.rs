@@ -1,6 +1,7 @@
 use async_trait::async_trait;
+use tracing::debug;
 
-use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsResponse};
+use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
 
 use super::{
     Access4args, Access4res, Access4resok, NfsResOp4, NfsStat4, ACCESS4_DELETE, ACCESS4_EXECUTE,
@@ -9,8 +10,9 @@ use super::{
 
 #[async_trait]
 impl NfsOperation for Access4args {
-    async fn execute(&self, request: NfsRequest) -> NfsResponse {
-        NfsResponse {
+    async fn execute(&self, request: NfsRequest) -> NfsOpResponse {
+        debug!("Operation 3: ACCESS - Check Access Rights {:?}, with request {:?}", self, request);
+        NfsOpResponse {
             request,
             result: Some(NfsResOp4::OpAccess(Access4res::Resok4(Access4resok {
                 supported: ACCESS4_READ

@@ -6,20 +6,21 @@ use crate::server::{
     nfs40::{Lookup4res, NfsResOp4},
     operation::NfsOperation,
     request::NfsRequest,
-    response::NfsResponse,
+    response::NfsOpResponse,
 };
 
 use super::{Lookup4args, NfsStat4};
 
 #[async_trait]
 impl NfsOperation for Lookup4args {
-    async fn execute(&self, mut request: NfsRequest) -> NfsResponse {
+    async fn execute(&self, mut request: NfsRequest) -> NfsOpResponse {
+        debug!("Operation 15: LOOKUP - Look Up Filename {:?}, with request {:?}", self, request);
         let current_fh = request.current_filehandle().await;
         let filehandle = match current_fh {
             Some(filehandle) => filehandle,
             None => {
                 error!("None filehandle");
-                return NfsResponse {
+                return NfsOpResponse {
                     request,
                     result: None,
                     status: NfsStat4::Nfs4errServerfault,
@@ -49,7 +50,7 @@ impl NfsOperation for Lookup4args {
             Ok(filehandle) => filehandle,
             Err(e) => {
                 error!("MailboxError {:?}", e);
-                return NfsResponse {
+                return NfsOpResponse {
                     request,
                     result: None,
                     status: NfsStat4::Nfs4errServerfault,
@@ -60,7 +61,7 @@ impl NfsOperation for Lookup4args {
         // lookup sets the current filehandle to the looked up filehandle
         request.set_filehandle_id(filehandle.id.clone());
 
-        NfsResponse {
+        NfsOpResponse {
             request,
             result: Some(NfsResOp4::Oplookup(Lookup4res {
                 status: NfsStat4::Nfs4Ok,
