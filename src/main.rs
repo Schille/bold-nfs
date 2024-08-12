@@ -1,12 +1,8 @@
-use actix::prelude::*;
 use bold::{
     proto::NFSProtoCodec,
     server::{
-        clientmanager::ClientManagerHandle,
-        filemanager::{FileManager, FileManagerHandler},
-        nfs40::NFS40Server,
-        request::NfsRequest,
-        NFSService, NfsProtoImpl,
+        clientmanager::ClientManagerHandle, filemanager::FileManagerHandle, nfs40::NFS40Server,
+        request::NfsRequest, NFSService, NfsProtoImpl,
     },
 };
 use futures::sink::SinkExt;
@@ -17,7 +13,7 @@ use tokio_util::codec::Framed;
 use tracing::{error, info, span, trace, Level};
 use vfs::{AltrootFS, PhysicalFS, VfsPath};
 
-#[actix::main]
+#[tokio::main]
 async fn main() {
     let subscriber = tracing_subscriber::fmt()
         .event_format(
@@ -39,7 +35,7 @@ async fn main() {
     info!(%bind, "Server listening");
     // start a global ClientManager actor
     let client_mananger_handle = ClientManagerHandle::new();
-    let file_manager_addr = FileManager::new(root, None).start();
+    let file_mananger_handle = FileManagerHandle::new(root, None);
     // dynamic dispatch to NFSv4.0 server implementation
     // TODO add support for multiple NFSv4 minor versions
     let nfs_protocol = NFS40Server::new();
@@ -63,7 +59,7 @@ async fn main() {
                             let request = NfsRequest::new(
                                 addr.to_string(),
                                 client_mananger_handle.clone(),
-                                FileManagerHandler::new(file_manager_addr.clone()),
+                                file_mananger_handle.clone(),
                             );
                             let resp = service.call(msg, request).await;
                             match nfs_transport.send(resp).await {

@@ -2,8 +2,7 @@ use async_trait::async_trait;
 use tracing::{debug, error};
 
 use crate::server::{
-    filemanager::GetFilehandleAttrsRequest, nfs40::NfsStat4, operation::NfsOperation,
-    request::NfsRequest, response::NfsOpResponse,
+    nfs40::NfsStat4, operation::NfsOperation, request::NfsRequest, response::NfsOpResponse,
 };
 
 use super::{Fattr4, Getattr4args, Getattr4res, Getattr4resok, NfsResOp4};
@@ -28,20 +27,16 @@ impl NfsOperation for Getattr4args {
             Some(filehandle_id) => {
                 let resp = request
                     .file_manager()
-                    .fmanager
-                    .send(GetFilehandleAttrsRequest {
-                        filehandle_id,
-                        attrs_request: self.attr_request.clone(),
-                    })
+                    .get_filehandle_attrs(filehandle_id, self.attr_request.clone())
                     .await;
                 let (answer_attrs, attrs) = match resp {
                     Ok(inner) => *inner,
                     Err(e) => {
-                        error!("MailboxError {:?}", e);
+                        error!("FileManagerError {:?}", e);
                         return NfsOpResponse {
                             request,
                             result: None,
-                            status: NfsStat4::Nfs4errServerfault,
+                            status: e.nfs_error,
                         };
                     }
                 };

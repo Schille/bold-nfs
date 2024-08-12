@@ -1,6 +1,6 @@
 use super::{
     clientmanager::ClientManagerHandle,
-    filemanager::{FileManagerHandler, Filehandle},
+    filemanager::{FileManagerHandle, Filehandle},
 };
 
 #[derive(Debug)]
@@ -10,14 +10,14 @@ pub struct NfsRequest {
     // shared state for client manager between connections
     cmanager: ClientManagerHandle,
     // local filehandle manager
-    fmanager: FileManagerHandler,
+    fmanager: FileManagerHandle,
 }
 
 impl NfsRequest {
     pub fn new(
         client_addr: String,
         cmanager: ClientManagerHandle,
-        fmanager: FileManagerHandler,
+        fmanager: FileManagerHandle,
     ) -> Self {
         NfsRequest {
             client_addr,
@@ -52,7 +52,7 @@ impl NfsRequest {
         self.cmanager.clone()
     }
 
-    pub fn file_manager(&self) -> FileManagerHandler {
+    pub fn file_manager(&self) -> FileManagerHandle {
         self.fmanager.clone()
     }
 

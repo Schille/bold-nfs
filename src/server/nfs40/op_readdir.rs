@@ -1,12 +1,7 @@
 use async_trait::async_trait;
 use tracing::{debug, error};
 
-use crate::server::{
-    filemanager::{GetFilehandleAttrsRequest, GetFilehandleRequest},
-    operation::NfsOperation,
-    request::NfsRequest,
-    response::NfsOpResponse,
-};
+use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
 
 use super::{
     DirList4, Entry4, Fattr4, NfsResOp4, NfsStat4, ReadDir4res, ReadDir4resok, Readdir4args,
@@ -52,11 +47,7 @@ impl NfsOperation for Readdir4args {
                 if dircount == 0 || (dircount > dircount_actual && maxcount > maxcount_actual) {
                     let filehandle = request
                         .file_manager()
-                        .fmanager
-                        .send(GetFilehandleRequest {
-                            path: Some(entry.as_str().to_string()),
-                            filehandle: None,
-                        })
+                        .get_filehandle_for_path(entry.as_str().to_string())
                         .await;
                     match filehandle {
                         Err(_e) => {
@@ -113,11 +104,7 @@ impl NfsOperation for Readdir4args {
         for (cookie, fh) in filehandles.into_iter().rev() {
             let resp = request
                 .file_manager()
-                .fmanager
-                .send(GetFilehandleAttrsRequest {
-                    filehandle_id: fh.id.clone(),
-                    attrs_request: self.attr_request.clone(),
-                })
+                .get_filehandle_attrs(fh.id.clone(), self.attr_request.clone())
                 .await;
             let (answer_attrs, attrs) = match resp {
                 Ok(inner) => *inner,

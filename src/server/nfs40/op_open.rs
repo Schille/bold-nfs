@@ -48,7 +48,7 @@ impl NfsOperation for Open4args {
                 debug!("## open {:?}", fh_path);
                 let filehandle = match request
                     .file_manager()
-                    .get_filehandle_for_path(&fh_path)
+                    .get_filehandle_for_path(fh_path)
                     .await
                 {
                     Ok(filehandle) => filehandle,

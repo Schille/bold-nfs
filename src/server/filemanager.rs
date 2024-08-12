@@ -8,8 +8,9 @@ use crate::proto::nfs4_proto::{
     FileAttr, FileAttrValue, Fsid4, NfsFtype4, NfsLease4, NfsStat4, Nfstime4,
     ACL4_SUPPORT_ALLOW_ACL, FH4_PERSISTENT, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR,
 };
-use actix::{Actor, Addr, Context, Handler, MailboxError, Message, MessageResult};
+
 use multi_index_map::MultiIndexMap;
+use tokio::sync::{mpsc, oneshot};
 use vfs::VfsPath;
 
 type FilehandleDb = MultiIndexFilehandleMap;
@@ -153,7 +154,7 @@ impl Filehandle {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct FileManager {
     pub root: VfsPath,
     pub lease_time: u32,
@@ -163,17 +164,25 @@ pub struct FileManager {
     pub fsid: u64,
     // database for all managed filehandles
     pub db: FilehandleDb,
+    pub receiver: mpsc::Receiver<FileManagerMessage>,
 }
 
-impl Actor for FileManager {
-    type Context = Context<Self>;
+enum FileManagerMessage {
+    GetRootFilehandle(GetRootFilehandleRequest),
+    GetFilehandle(GetFilehandleRequest),
+    GetFilehandleAttrs(GetFilehandleAttrsRequest),
 }
 
 impl FileManager {
-    pub fn new(root: VfsPath, fsid: Option<u64>) -> Self {
+    pub fn new(
+        receiver: mpsc::Receiver<FileManagerMessage>,
+        root: VfsPath,
+        fsid: Option<u64>,
+    ) -> Self {
         let fsid = fsid.unwrap_or(152);
 
         FileManager {
+            receiver,
             root: root.clone(),
             // lease time in seconds
             lease_time: 60,
@@ -182,6 +191,39 @@ impl FileManager {
             unique_handles: true,
             fsid,
             db: FilehandleDb::default(),
+        }
+    }
+
+    fn handle_message(&mut self, msg: FileManagerMessage) {
+        match msg {
+            FileManagerMessage::GetRootFilehandle(req) => {
+                let fh = self.root_fh();
+                req.respond_to.send(fh).unwrap();
+            }
+            FileManagerMessage::GetFilehandle(req) => {
+                if req.filehandle.is_some() {
+                    let fh = self.get_filehandle_by_id(&req.filehandle.unwrap());
+                    match fh {
+                        Some(fh) => {
+                            req.respond_to.send(Box::new(fh)).unwrap();
+                        }
+                        None => {
+                            panic!("Filehandle not found");
+                        }
+                    }
+                } else if req.path.is_some() {
+                    let path = self.root.join(req.path.unwrap()).unwrap();
+                    let fh = self.get_filehandle(&path);
+                    req.respond_to.send(Box::new(fh)).unwrap();
+                } else {
+                    req.respond_to.send(self.root_fh()).unwrap();
+                }
+            }
+            FileManagerMessage::GetFilehandleAttrs(req) => {
+                req.respond_to
+                    .send(self.filehandle_attrs(&req.attrs_request, &req.filehandle_id))
+                    .unwrap();
+            }
         }
     }
 
@@ -540,114 +582,112 @@ impl FileManager {
     // }
 }
 
-#[derive(Message)]
-#[rtype(result = "Box<Filehandle>")]
-pub struct GetRootFilehandleRequest;
-
-impl Handler<GetRootFilehandleRequest> for FileManager {
-    type Result = MessageResult<GetRootFilehandleRequest>;
-
-    fn handle(&mut self, _msg: GetRootFilehandleRequest, _ctx: &mut Context<Self>) -> Self::Result {
-        MessageResult(self.root_fh())
-    }
+pub struct GetRootFilehandleRequest {
+    pub respond_to: oneshot::Sender<Box<Filehandle>>,
 }
 
-#[derive(Message)]
-#[rtype(result = "Box<Filehandle>")]
 pub struct GetFilehandleRequest {
     pub path: Option<String>,
     pub filehandle: Option<Vec<u8>>,
+    pub respond_to: oneshot::Sender<Box<Filehandle>>,
 }
 
-impl Handler<GetFilehandleRequest> for FileManager {
-    type Result = MessageResult<GetFilehandleRequest>;
-
-    fn handle(&mut self, msg: GetFilehandleRequest, _ctx: &mut Context<Self>) -> Self::Result {
-        if msg.filehandle.is_some() {
-            let fh = self.get_filehandle_by_id(&msg.filehandle.unwrap());
-            match fh {
-                Some(fh) => {
-                    return MessageResult(Box::new(fh));
-                }
-                None => {
-                    panic!("Filehandle not found");
-                }
-            }
-        }
-        if msg.path.is_some() {
-            let path = self.root.join(msg.path.unwrap()).unwrap();
-            let fh = self.get_filehandle(&path);
-            MessageResult(Box::new(fh))
-        } else {
-            MessageResult(self.root_fh())
-        }
-    }
-}
-
-#[derive(Message)]
-#[rtype(result = "Box<(Vec<FileAttr>, Vec<FileAttrValue>)>")]
 pub struct GetFilehandleAttrsRequest {
     pub filehandle_id: Vec<u8>,
     pub attrs_request: Vec<FileAttr>,
-}
-
-impl Handler<GetFilehandleAttrsRequest> for FileManager {
-    type Result = MessageResult<GetFilehandleAttrsRequest>;
-
-    fn handle(&mut self, msg: GetFilehandleAttrsRequest, _ctx: &mut Context<Self>) -> Self::Result {
-        MessageResult(self.filehandle_attrs(&msg.attrs_request, &msg.filehandle_id))
-    }
+    pub respond_to: oneshot::Sender<Box<(Vec<FileAttr>, Vec<FileAttrValue>)>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct FileManagerHandler {
-    pub fmanager: Addr<FileManager>,
+pub struct FileManagerError {
+    pub nfs_error: NfsStat4,
 }
 
-impl FileManagerHandler {
-    pub fn new(fmanager: Addr<FileManager>) -> Self {
-        FileManagerHandler { fmanager }
+#[derive(Debug, Clone)]
+pub struct FileManagerHandle {
+    sender: mpsc::Sender<FileManagerMessage>,
+}
+
+impl FileManagerHandle {
+    pub fn new(root: VfsPath, fsid: Option<u64>) -> Self {
+        let (sender, receiver) = mpsc::channel(16);
+        let fmanager = FileManager::new(receiver, root, fsid);
+        // start the client manager actor
+        tokio::spawn(run_file_manager(fmanager));
+
+        Self { sender }
     }
 
     async fn send_filehandle_request(
         &self,
-        req: GetFilehandleRequest,
-    ) -> Result<Box<Filehandle>, MailboxError> {
-        let resp = self.fmanager.send(req).await;
-        match resp {
-            Ok(filehandle) => Ok(filehandle),
-            Err(e) => Err(e),
+        path: Option<String>,
+        filehandle: Option<Vec<u8>>,
+    ) -> Result<Box<Filehandle>, FileManagerError> {
+        let (tx, rx) = oneshot::channel();
+        let req = GetFilehandleRequest {
+            path,
+            filehandle,
+            respond_to: tx,
+        };
+        self.sender
+            .send(FileManagerMessage::GetFilehandle(req))
+            .await
+            .unwrap();
+        match rx.await {
+            Ok(fh) => Ok(fh),
+            Err(_) => Err(FileManagerError {
+                nfs_error: NfsStat4::Nfs4errServerfault,
+            }),
         }
     }
 
-    pub async fn get_root_filehandle(&self) -> Result<Box<Filehandle>, MailboxError> {
-        let req = GetFilehandleRequest {
-            path: None,
-            filehandle: None,
-        };
-        self.send_filehandle_request(req).await
+    pub async fn get_root_filehandle(&self) -> Result<Box<Filehandle>, FileManagerError> {
+        self.send_filehandle_request(None, None).await
     }
 
     pub async fn get_filehandle_for_id(
         &self,
         id: Vec<u8>,
-    ) -> Result<Box<Filehandle>, MailboxError> {
-        let req = GetFilehandleRequest {
-            path: None,
-            filehandle: Some(id),
-        };
-        self.send_filehandle_request(req).await
+    ) -> Result<Box<Filehandle>, FileManagerError> {
+        self.send_filehandle_request(None, Some(id)).await
     }
 
     pub async fn get_filehandle_for_path(
         &self,
-        path: &String,
-    ) -> Result<Box<Filehandle>, MailboxError> {
-        let req = GetFilehandleRequest {
-            path: Some(path.clone()),
-            filehandle: None,
+        path: String,
+    ) -> Result<Box<Filehandle>, FileManagerError> {
+        self.send_filehandle_request(Some(path), None).await
+    }
+
+    pub async fn get_filehandle_attrs(
+        &self,
+        filehandle_id: Vec<u8>,
+        attrs_request: Vec<FileAttr>,
+    ) -> Result<Box<(Vec<FileAttr>, Vec<FileAttrValue>)>, FileManagerError> {
+        let (tx, rx) = oneshot::channel();
+        let req = GetFilehandleAttrsRequest {
+            filehandle_id,
+            attrs_request,
+            respond_to: tx,
         };
-        self.send_filehandle_request(req).await
+        self.sender
+            .send(FileManagerMessage::GetFilehandleAttrs(req))
+            .await
+            .unwrap();
+        match rx.await {
+            Ok(attrs) => Ok(attrs),
+            Err(_) => Err(FileManagerError {
+                nfs_error: NfsStat4::Nfs4errServerfault,
+            }),
+        }
+    }
+}
+
+// FileManager is run as with the actor pattern
+// learn more: https://ryhl.io/blog/actors-with-tokio/
+async fn run_file_manager(mut actor: FileManager) {
+    while let Some(msg) = actor.receiver.recv().await {
+        actor.handle_message(msg);
     }
 }
 

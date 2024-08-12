@@ -2,7 +2,6 @@ use async_trait::async_trait;
 use tracing::{debug, error};
 
 use crate::server::{
-    filemanager::GetFilehandleRequest,
     nfs40::{Lookup4res, NfsResOp4},
     operation::NfsOperation,
     request::NfsRequest,
@@ -41,14 +40,7 @@ impl NfsOperation for Lookup4args {
 
         debug!("lookup {:?}", path);
 
-        let resp = request
-            .file_manager()
-            .fmanager
-            .send(GetFilehandleRequest {
-                filehandle: None,
-                path: Some(path),
-            })
-            .await;
+        let resp = request.file_manager().get_filehandle_for_path(path).await;
         let filehandle = match resp {
             Ok(filehandle) => filehandle,
             Err(e) => {

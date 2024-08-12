@@ -9,7 +9,7 @@ A list of all support NFSv4 operations:
 
 **Todo**
 
-## Importand RFS for the implementation
+## Importand RFC for the implementation
 - [XDR: External Data Representation Standard](https://datatracker.ietf.org/doc/html/rfc4506)
 - [Network File System (NFS) Version 4 Protocol](https://datatracker.ietf.org/doc/html/rfc7530)
 - [Network File System (NFS) Version 4 Minor Version 1 Protocol](https://datatracker.ietf.org/doc/html/rfc5661)
