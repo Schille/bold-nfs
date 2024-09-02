@@ -12,13 +12,31 @@ impl NfsOperation for PutFh4args {
             "Operation 22: PUTFH - Set Current Filehandle {:?}, with request {:?}",
             self, request
         );
-        request.set_filehandle_id(self.object.clone());
-        NfsOpResponse {
-            request,
-            result: Some(NfsResOp4::Opputfh(PutFh4res {
-                status: NfsStat4::Nfs4Ok,
-            })),
-            status: NfsStat4::Nfs4Ok,
+        match request
+            .file_manager()
+            .get_filehandle_for_id(self.object.clone())
+            .await
+        {
+            Ok(filehandle) => {
+                request.set_filehandle_id(filehandle.id.clone());
+                return NfsOpResponse {
+                    request,
+                    result: Some(NfsResOp4::Opputfh(PutFh4res {
+                        status: NfsStat4::Nfs4Ok,
+                    })),
+                    status: NfsStat4::Nfs4Ok,
+                };
+            }
+            Err(e) => {
+                request.unset_filehandle_id();
+                return NfsOpResponse {
+                    request,
+                    result: Some(NfsResOp4::Opputfh(PutFh4res {
+                        status: e.nfs_error.clone(),
+                    })),
+                    status: e.nfs_error,
+                };
+            }
         }
     }
 }

@@ -27,12 +27,11 @@ pub struct ClientCallback {
     pub callback_ident: u32,
 }
 
-// https://datatracker.ietf.org/doc/html/rfc7530#section-16.33.5
-
+/// Please read: [RFC 7530, Section 16.33.5](https://datatracker.ietf.org/doc/html/rfc7530#section-16.33.5)
 #[derive(MultiIndexMap, Debug, Clone)]
 #[multi_index_derive(Debug, Clone)]
 pub struct ClientEntry {
-    // https://datatracker.ietf.org/doc/html/rfc7530#section-3.3.3
+    /// Please read: [RFC 7530, Section 3.3.3](https://datatracker.ietf.org/doc/html/rfc7530#section-3.3.3)
     #[multi_index(hashed_non_unique)]
     pub principal: Option<String>,
     #[multi_index(hashed_non_unique)]
@@ -81,7 +80,7 @@ pub struct GetCurrentFilehandleRequest {
 }
 
 impl ClientManager {
-    pub fn new(receiver: mpsc::Receiver<ClientManagerMessage>) -> Self {
+    fn new(receiver: mpsc::Receiver<ClientManagerMessage>) -> Self {
         ClientManager {
             receiver,
             db: ClientDb::default().into(),
@@ -380,221 +379,218 @@ impl ClientManagerHandle {
     }
 }
 
-// ClientManager is run as with the actor pattern
-// learn more: https://ryhl.io/blog/actors-with-tokio/
+/// ClientManager is run as with the actor pattern
+///
+/// Learn more: https://ryhl.io/blog/actors-with-tokio/
 async fn run_client_manager(mut actor: ClientManager) {
     while let Some(msg) = actor.receiver.recv().await {
         actor.handle_message(msg);
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use std::{
-//         sync::{Arc, Mutex},
-//         time::Instant,
-//     };
+#[cfg(test)]
+mod tests {
 
-//     use rand::{distributions::Alphanumeric, Rng};
+    use tokio::sync::mpsc;
 
-//     use crate::{
-//         proto::nfs4_proto::NfsStat4,
-//         server::clientmanager::{ClientCallback, ClientManager},
-//     };
+    use crate::proto::nfs4_proto::NfsStat4;
 
-//     #[test]
-//     fn test_upsert_clients_no_principals() {
-//         let mut manager = super::ClientManager::new();
+    #[test]
+    fn test_upsert_clients_no_principals() {
+        let (_, receiver) = mpsc::channel(16);
+        let mut manager = super::ClientManager::new(receiver);
 
-//         let verifier = [0; 8];
-//         let id = "test".to_string();
-//         let callback = super::ClientCallback {
-//             program: 0,
-//             rnetid: "tcp".to_string(),
-//             raddr: "".to_string(),
-//             callback_ident: 0,
-//         };
+        let verifier = [0; 8];
+        let id = "test".to_string();
+        let callback = super::ClientCallback {
+            program: 0,
+            rnetid: "tcp".to_string(),
+            raddr: "".to_string(),
+            callback_ident: 0,
+        };
 
-//         let client = manager
-//             .upsert_client(verifier, id.clone(), callback.clone(), None)
-//             .unwrap();
-//         assert_eq!(client.id, id);
-//         assert_eq!(client.verifier, verifier);
-//         assert_eq!(client.callback, callback);
+        let client = manager
+            .upsert_client(verifier, id.clone(), callback.clone(), None)
+            .unwrap();
+        assert_eq!(client.id, id);
+        assert_eq!(client.verifier, verifier);
+        assert_eq!(client.callback, callback);
 
-//         let updated_callback = super::ClientCallback {
-//             program: 10,
-//             rnetid: "tcp".to_string(),
-//             raddr: "".to_string(),
-//             callback_ident: 2,
-//         };
+        let updated_callback = super::ClientCallback {
+            program: 10,
+            rnetid: "tcp".to_string(),
+            raddr: "".to_string(),
+            callback_ident: 2,
+        };
 
-//         let same_client = manager
-//             .upsert_client(verifier, id.clone(), updated_callback.clone(), None)
-//             .unwrap();
-//         assert_eq!(same_client.id, id);
-//         assert_eq!(same_client.verifier, verifier);
-//         assert_eq!(same_client.callback, updated_callback);
-//         assert_eq!(same_client.clientid, client.clientid);
+        let same_client = manager
+            .upsert_client(verifier, id.clone(), updated_callback.clone(), None)
+            .unwrap();
+        assert_eq!(same_client.id, id);
+        assert_eq!(same_client.verifier, verifier);
+        assert_eq!(same_client.callback, updated_callback);
+        assert_eq!(same_client.clientid, client.clientid);
 
-//         // confirm after update
-//         let err_confirm = manager.confirm_client(client.clientid, client.setclientid_confirm, None);
-//         assert_eq!(
-//             err_confirm.unwrap_err().nfs_error,
-//             NfsStat4::Nfs4errStaleClientid
-//         );
+        // confirm after update
+        let err_confirm = manager.confirm_client(client.clientid, client.setclientid_confirm, None);
+        assert_eq!(
+            err_confirm.unwrap_err().nfs_error,
+            NfsStat4::Nfs4errStaleClientid
+        );
 
-//         let confirmed_client = manager
-//             .confirm_client(client.clientid, same_client.setclientid_confirm, None)
-//             .unwrap();
-//         assert!(confirmed_client.confirmed);
-//         assert_eq!(confirmed_client.clientid, client.clientid);
+        let confirmed_client = manager
+            .confirm_client(client.clientid, same_client.setclientid_confirm, None)
+            .unwrap();
+        assert!(confirmed_client.confirmed);
+        assert_eq!(confirmed_client.clientid, client.clientid);
 
-//         let other_callback = super::ClientCallback {
-//             program: 1,
-//             rnetid: "tcp".to_string(),
-//             raddr: "".to_string(),
-//             callback_ident: 0,
-//         };
-//         let err_client = manager.upsert_client(
-//             verifier,
-//             id,
-//             other_callback.clone(),
-//             Some("LINUX".to_string()),
-//         );
-//         assert_eq!(
-//             err_client.unwrap_err().nfs_error,
-//             NfsStat4::Nfs4errClidInuse
-//         );
+        let other_callback = super::ClientCallback {
+            program: 1,
+            rnetid: "tcp".to_string(),
+            raddr: "".to_string(),
+            callback_ident: 0,
+        };
+        let err_client = manager.upsert_client(
+            verifier,
+            id,
+            other_callback.clone(),
+            Some("LINUX".to_string()),
+        );
+        assert_eq!(
+            err_client.unwrap_err().nfs_error,
+            NfsStat4::Nfs4errClidInuse
+        );
 
-//         let stale_client = manager.confirm_client(1234, client.setclientid_confirm, None);
-//         assert_eq!(
-//             stale_client.unwrap_err().nfs_error,
-//             NfsStat4::Nfs4errStaleClientid
-//         );
+        let stale_client = manager.confirm_client(1234, client.setclientid_confirm, None);
+        assert_eq!(
+            stale_client.unwrap_err().nfs_error,
+            NfsStat4::Nfs4errStaleClientid
+        );
 
-//         let confirmed = manager.get_client_confirmed(client.clientid);
-//         assert_eq!(confirmed.unwrap().clientid, client.clientid);
-//         assert!(confirmed.unwrap().confirmed);
+        let confirmed = manager.get_client_confirmed(client.clientid);
+        assert_eq!(confirmed.unwrap().clientid, client.clientid);
+        assert!(confirmed.unwrap().confirmed);
 
-//         let c = manager.get_record_count();
-//         assert_eq!(c, 1);
-//         manager.remove_client(client.clientid);
-//         let c = manager.get_record_count();
-//         assert_eq!(c, 0);
-//     }
+        let c = manager.get_record_count();
+        assert_eq!(c, 1);
+        manager.remove_client(client.clientid);
+        let c = manager.get_record_count();
+        assert_eq!(c, 0);
+    }
 
-//     #[test]
-//     fn test_upsert_clients_double_confirm() {
-//         let mut manager = super::ClientManager::new();
+    #[test]
+    fn test_upsert_clients_double_confirm() {
+        let (_, receiver) = mpsc::channel(16);
+        let mut manager = super::ClientManager::new(receiver);
 
-//         let verifier = [0; 8];
-//         let id = "test".to_string();
-//         let callback = super::ClientCallback {
-//             program: 0,
-//             rnetid: "tcp".to_string(),
-//             raddr: "".to_string(),
-//             callback_ident: 0,
-//         };
+        let verifier = [0; 8];
+        let id = "test".to_string();
+        let callback = super::ClientCallback {
+            program: 0,
+            rnetid: "tcp".to_string(),
+            raddr: "".to_string(),
+            callback_ident: 0,
+        };
 
-//         let client = manager
-//             .upsert_client(verifier, id.clone(), callback.clone(), None)
-//             .unwrap();
+        let client = manager
+            .upsert_client(verifier, id.clone(), callback.clone(), None)
+            .unwrap();
 
-//         let confirmed_client = manager
-//             .confirm_client(client.clientid, client.setclientid_confirm, None)
-//             .unwrap();
-//         assert!(confirmed_client.confirmed);
-//         assert_eq!(confirmed_client.clientid, client.clientid);
-//         let confirmed_client = manager
-//             .confirm_client(client.clientid, client.setclientid_confirm, None)
-//             .unwrap();
-//         assert!(confirmed_client.confirmed);
-//         assert_eq!(confirmed_client.clientid, client.clientid);
-//     }
+        let confirmed_client = manager
+            .confirm_client(client.clientid, client.setclientid_confirm, None)
+            .unwrap();
+        assert!(confirmed_client.confirmed);
+        assert_eq!(confirmed_client.clientid, client.clientid);
+        let confirmed_client = manager
+            .confirm_client(client.clientid, client.setclientid_confirm, None)
+            .unwrap();
+        assert!(confirmed_client.confirmed);
+        assert_eq!(confirmed_client.clientid, client.clientid);
+    }
 
-//     #[test]
-//     fn test_upsert_clients_principals() {
-//         let mut manager = super::ClientManager::new();
+    #[test]
+    fn test_upsert_clients_principals() {
+        let (_, receiver) = mpsc::channel(16);
+        let mut manager = super::ClientManager::new(receiver);
 
-//         let verifier = [0; 8];
-//         let id = "test".to_string();
-//         let callback = super::ClientCallback {
-//             program: 0,
-//             rnetid: "tcp".to_string(),
-//             raddr: "".to_string(),
-//             callback_ident: 0,
-//         };
+        let verifier = [0; 8];
+        let id = "test".to_string();
+        let callback = super::ClientCallback {
+            program: 0,
+            rnetid: "tcp".to_string(),
+            raddr: "".to_string(),
+            callback_ident: 0,
+        };
 
-//         let client = manager
-//             .upsert_client(
-//                 verifier,
-//                 id.clone(),
-//                 callback.clone(),
-//                 Some("Linux".to_string()),
-//             )
-//             .unwrap();
+        let client = manager
+            .upsert_client(
+                verifier,
+                id.clone(),
+                callback.clone(),
+                Some("Linux".to_string()),
+            )
+            .unwrap();
 
-//         let same_client = manager
-//             .confirm_client(
-//                 client.clientid,
-//                 client.setclientid_confirm,
-//                 Some("Linux".to_string()),
-//             )
-//             .unwrap();
+        let same_client = manager
+            .confirm_client(
+                client.clientid,
+                client.setclientid_confirm,
+                Some("Linux".to_string()),
+            )
+            .unwrap();
 
-//         assert_eq!(same_client.id, id);
-//         assert_eq!(same_client.verifier, verifier);
-//         assert_eq!(same_client.callback, callback);
-//         assert_eq!(same_client.clientid, client.clientid);
-//         assert_eq!(same_client.principal, Some("Linux".to_string()));
-//         assert!(same_client.confirmed);
-//     }
+        assert_eq!(same_client.id, id);
+        assert_eq!(same_client.verifier, verifier);
+        assert_eq!(same_client.callback, callback);
+        assert_eq!(same_client.clientid, client.clientid);
+        assert_eq!(same_client.principal, Some("Linux".to_string()));
+        assert!(same_client.confirmed);
+    }
 
-//     #[tokio::test]
-//     async fn test_upsert_clients_async() {
-//         let manager = Arc::new(Mutex::new(ClientManager::new()));
-//         async fn client_spawn(manager: Arc<Mutex<ClientManager>>) {
-//             let mut manager = manager.lock().unwrap();
-//             let verifier = [0; 8];
-//             let id: String = rand::thread_rng()
-//                 .sample_iter(&Alphanumeric)
-//                 .take(12)
-//                 .map(char::from)
-//                 .collect();
-//             let callback = ClientCallback {
-//                 program: 0,
-//                 rnetid: "tcp".to_string(),
-//                 raddr: "".to_string(),
-//                 callback_ident: 0,
-//             };
+    // #[tokio::test]
+    // async fn test_upsert_clients_async() {
+    //     let manager = Arc::new(Mutex::new(ClientManager::new()));
+    //     async fn client_spawn(manager: Arc<Mutex<ClientManager>>) {
+    //         let mut manager = manager.lock().unwrap();
+    //         let verifier = [0; 8];
+    //         let id: String = rand::thread_rng()
+    //             .sample_iter(&Alphanumeric)
+    //             .take(12)
+    //             .map(char::from)
+    //             .collect();
+    //         let callback = ClientCallback {
+    //             program: 0,
+    //             rnetid: "tcp".to_string(),
+    //             raddr: "".to_string(),
+    //             callback_ident: 0,
+    //         };
 
-//             let client = manager
-//                 .upsert_client(verifier, id.clone(), callback.clone(), None)
-//                 .unwrap();
+    //         let client = manager
+    //             .upsert_client(verifier, id.clone(), callback.clone(), None)
+    //             .unwrap();
 
-//             // confirm after update
+    //         // confirm after update
 
-//             let confirmed_client = manager
-//                 .confirm_client(client.clientid, client.setclientid_confirm, None)
-//                 .unwrap();
-//             assert!(confirmed_client.confirmed);
-//         }
+    //         let confirmed_client = manager
+    //             .confirm_client(client.clientid, client.setclientid_confirm, None)
+    //             .unwrap();
+    //         assert!(confirmed_client.confirmed);
+    //     }
 
-//         let mut jobs = Vec::new();
-//         for _ in 0..1000 {
-//             jobs.push(client_spawn(manager.clone()));
-//         }
+    //     let mut jobs = Vec::new();
+    //     for _ in 0..1000 {
+    //         jobs.push(client_spawn(manager.clone()));
+    //     }
 
-//         let now = Instant::now();
-//         let _ = futures::future::join_all(jobs).await;
-//         let eps = now.elapsed();
+    //     let now = Instant::now();
+    //     let _ = futures::future::join_all(jobs).await;
+    //     let eps = now.elapsed();
 
-//         let mut manager = manager.lock().unwrap();
-//         assert_eq!(manager.get_record_count(), 1000);
-//         println!("Elapsed time: {:?}", eps.as_millis());
-//         assert!(eps.as_millis() < 50);
-//         let c_99 = manager.get_client_confirmed(99);
-//         assert!(c_99.unwrap().confirmed);
-//     }
-// }
+    //     let mut manager = manager.lock().unwrap();
+    //     assert_eq!(manager.get_record_count(), 1000);
+    //     println!("Elapsed time: {:?}", eps.as_millis());
+    //     assert!(eps.as_millis() < 50);
+    //     let c_99 = manager.get_client_confirmed(99);
+    //     assert!(c_99.unwrap().confirmed);
+    // }
+}

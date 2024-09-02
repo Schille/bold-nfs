@@ -97,6 +97,7 @@ impl NfsProtoImpl for NFS40Server {
     }
 
     async fn compound(&self, msg: CallBody, mut request: NfsRequest) -> (NfsRequest, ReplyBody) {
+        let mut last_status = NfsStat4::Nfs4Ok;
         let res = match &msg.args {
             Some(args) => {
                 let mut resarray = Vec::with_capacity(args.argarray.len());
@@ -155,17 +156,25 @@ impl NfsProtoImpl for NFS40Server {
                         NfsArgOp::OpreleaseLockOwner(_) => todo!(),
                     };
                     // match the result of the operation, pass on success, return on error
-                    match response.status {
-                        NfsStat4::Nfs4Ok => resarray.push(response.result.unwrap()),
+                    let res = response.result;
+                    last_status = response.status;
+                    if let Some(res) = res {
+                        resarray.push(res);
+                    } else {
+                        request = response.request;
+                        break;
+                    }
+                    match last_status {
+                        NfsStat4::Nfs4Ok => {}
                         _ => {
                             return (
                                 response.request,
                                 ReplyBody::MsgAccepted(AcceptedReply {
                                     verf: OpaqueAuth::AuthNull(Vec::<u8>::new()),
                                     reply_data: AcceptBody::Success(Compound4res {
-                                        status: response.status,
+                                        status: last_status,
                                         tag: "".to_string(),
-                                        resarray: Vec::new(),
+                                        resarray,
                                     }),
                                 }),
                             );
@@ -184,7 +193,7 @@ impl NfsProtoImpl for NFS40Server {
             ReplyBody::MsgAccepted(AcceptedReply {
                 verf: OpaqueAuth::AuthNull(Vec::<u8>::new()),
                 reply_data: AcceptBody::Success(Compound4res {
-                    status: NfsStat4::Nfs4Ok,
+                    status: last_status,
                     tag: "".to_string(),
                     resarray: res,
                 }),

@@ -3,7 +3,7 @@ use super::{
     filemanager::{FileManagerHandle, Filehandle},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NfsRequest {
     client_addr: String,
     filehandle_id: Option<Vec<u8>>,
@@ -58,6 +58,10 @@ impl NfsRequest {
 
     pub fn set_filehandle_id(&mut self, filehandle_id: Vec<u8>) {
         self.filehandle_id = Some(filehandle_id);
+    }
+
+    pub fn unset_filehandle_id(&mut self) {
+        self.filehandle_id = None;
     }
 
     // this is called when the request is done

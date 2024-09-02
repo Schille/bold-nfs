@@ -1,16 +1,16 @@
 use std::{
     hash::{DefaultHasher, Hash, Hasher},
-    iter,
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use crate::proto::nfs4_proto::{
     FileAttr, FileAttrValue, Fsid4, NfsFtype4, NfsLease4, NfsStat4, Nfstime4,
-    ACL4_SUPPORT_ALLOW_ACL, FH4_PERSISTENT, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR,
+    ACL4_SUPPORT_ALLOW_ACL, FH4_VOLATILE_ANY, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR,
 };
 
 use multi_index_map::MultiIndexMap;
 use tokio::sync::{mpsc, oneshot};
+use tracing::debug;
 use vfs::VfsPath;
 
 type FilehandleDb = MultiIndexFilehandleMap;
@@ -108,8 +108,13 @@ impl Filehandle {
     }
 
     fn attr_change(file: &VfsPath) -> u64 {
-        let v = file.metadata().unwrap().modified.unwrap();
-        u64::try_from(v.duration_since(UNIX_EPOCH).unwrap().as_secs()).unwrap()
+        let v = file.metadata();
+        if v.is_ok() {
+            if let Some(v) = v.unwrap().modified {
+                return v.duration_since(UNIX_EPOCH).unwrap().as_secs();
+            }
+        }
+        0
     }
 
     fn attr_fileid(file: &VfsPath) -> u64 {
@@ -164,10 +169,11 @@ pub struct FileManager {
     pub fsid: u64,
     // database for all managed filehandles
     pub db: FilehandleDb,
+    pub boot_time: u64,
     pub receiver: mpsc::Receiver<FileManagerMessage>,
 }
 
-enum FileManagerMessage {
+pub enum FileManagerMessage {
     GetRootFilehandle(GetRootFilehandleRequest),
     GetFilehandle(GetFilehandleRequest),
     GetFilehandleAttrs(GetFilehandleAttrsRequest),
@@ -180,18 +186,22 @@ impl FileManager {
         fsid: Option<u64>,
     ) -> Self {
         let fsid = fsid.unwrap_or(152);
-
-        FileManager {
+        let boot_time = std::time::UNIX_EPOCH.elapsed().unwrap().as_secs();
+        let mut fmanager = FileManager {
             receiver,
             root: root.clone(),
             // lease time in seconds
             lease_time: 60,
             hard_link_support: false,
             symlink_support: false,
-            unique_handles: true,
+            unique_handles: false,
+            boot_time,
             fsid,
             db: FilehandleDb::default(),
-        }
+        };
+        // always have a root filehandle upon start
+        fmanager.root_fh();
+        fmanager
     }
 
     fn handle_message(&mut self, msg: FileManagerMessage) {
@@ -205,18 +215,25 @@ impl FileManager {
                     let fh = self.get_filehandle_by_id(&req.filehandle.unwrap());
                     match fh {
                         Some(fh) => {
-                            req.respond_to.send(Box::new(fh)).unwrap();
+                            req.respond_to.send(Some(Box::new(fh))).unwrap();
                         }
                         None => {
-                            panic!("Filehandle not found");
+                            debug!("Filehandle not found");
+                            req.respond_to.send(None).unwrap();
                         }
                     }
                 } else if req.path.is_some() {
                     let path = self.root.join(req.path.unwrap()).unwrap();
-                    let fh = self.get_filehandle(&path);
-                    req.respond_to.send(Box::new(fh)).unwrap();
+                    // check if file exists
+                    if path.exists().unwrap() {
+                        let fh = self.get_filehandle(&path);
+                        req.respond_to.send(Some(Box::new(fh))).unwrap();
+                    } else {
+                        debug!("File not found {:?}", path);
+                        req.respond_to.send(None).unwrap();
+                    }
                 } else {
-                    req.respond_to.send(self.root_fh()).unwrap();
+                    req.respond_to.send(Some(self.root_fh())).unwrap();
                 }
             }
             FileManagerMessage::GetFilehandleAttrs(req) => {
@@ -227,24 +244,53 @@ impl FileManager {
         }
     }
 
-    fn get_filehandle_id(&self, path: &VfsPath) -> Vec<u8> {
-        let mut p: &str = path.as_str();
-
-        if p.is_empty() {
-            p = "/";
+    fn get_filehandle_id(&self, file: &VfsPath) -> Vec<u8> {
+        // if there is already a filehandle for this path, return it
+        let mut path = file.as_str().to_string();
+        if path.is_empty() {
+            // this is root
+            path = "/".to_string();
         }
+        let exists = self.get_filehandle_by_path(&path);
+        if let Some(exists) = exists {
+            return exists.id;
+        }
+
+        if path == "/" {
+            // root gets a special filehandle that always constructs the same way
+            return vec![128_u8];
+        }
+        // this implements a "Volatile Filehandle"
+        // https://tools.ietf.org/html/rfc7530#section-4.2.3
+        let mut id = vec![128_u8];
+        id.extend(self.boot_time.to_be_bytes().to_vec());
+        id.extend(self.db.len().to_be_bytes().to_vec());
+        id.extend(vec![1_u8]);
+
         // TODO this does not work for long, just a dirty temporary solution
-        let mut id: Vec<u8> = iter::repeat(0).take(128 - p.len()).collect();
-        id.extend(p.as_bytes().to_vec());
+        // let mut id: Vec<u8> = iter::repeat(0).take(128 - p.len()).collect();
+        // id.extend(p.as_bytes().to_vec());
+        debug!("created new filehandle id: {:?}", id);
         id
     }
 
-    fn get_filehandle_by_id(&self, id: &Vec<u8>) -> Option<Filehandle> {
-        self.db.get_by_id(id).cloned()
+    fn get_filehandle_by_id(&mut self, id: &Vec<u8>) -> Option<Filehandle> {
+        let fh = self.db.get_by_id(id);
+        if let Some(fh) = fh {
+            if fh.file.exists().unwrap() {
+                debug!("Found filehandle: {:?}", fh);
+                return Some(fh.clone());
+            } else {
+                // this filehandle is stale, remove it
+                debug!("Removing stale filehandle: {:?}", fh);
+                self.db.remove_by_id(id);
+            }
+        }
+        None
     }
 
     pub fn get_filehandle_by_path(&self, path: &String) -> Option<Filehandle> {
-        print!("get_filehandle_by_path: {}", path);
+        debug!("get_filehandle_by_path: {}", path);
         self.db.get_by_path(path).cloned()
     }
 
@@ -254,6 +300,7 @@ impl FileManager {
             Some(fh) => fh.clone(),
             None => {
                 let fh = Filehandle::new(file.clone(), id, self.fsid, self.fsid);
+                debug!("Storing new filehandle: {:?}", fh);
                 self.db.insert(fh.clone());
                 fh
             }
@@ -265,116 +312,122 @@ impl FileManager {
     }
 
     pub fn filehandle_attrs(
-        &self,
+        &mut self,
         attr_request: &Vec<FileAttr>,
         filehandle_id: &Vec<u8>,
-    ) -> Box<(Vec<FileAttr>, Vec<FileAttrValue>)> {
+    ) -> Option<Box<(Vec<FileAttr>, Vec<FileAttrValue>)>> {
         let mut answer_attrs = Vec::new();
         let mut attrs = Vec::new();
-        let filehandle = self.get_filehandle_by_id(filehandle_id).unwrap();
+        let fh = self.get_filehandle_by_id(filehandle_id);
 
-        for fileattr in attr_request {
-            match fileattr {
-                FileAttr::SupportedAttrs => {
-                    attrs.push(FileAttrValue::SupportedAttrs(self.attr_supported_attrs()));
-                    answer_attrs.push(FileAttr::SupportedAttrs);
+        match fh {
+            None => None,
+
+            Some(filehandle) => {
+                for fileattr in attr_request {
+                    match fileattr {
+                        FileAttr::SupportedAttrs => {
+                            attrs.push(FileAttrValue::SupportedAttrs(self.attr_supported_attrs()));
+                            answer_attrs.push(FileAttr::SupportedAttrs);
+                        }
+                        FileAttr::Type => {
+                            attrs.push(FileAttrValue::Type(filehandle.attr_type));
+                            answer_attrs.push(FileAttr::Type);
+                        }
+                        FileAttr::LeaseTime => {
+                            attrs.push(FileAttrValue::LeaseTime(self.attr_lease_time()));
+                            answer_attrs.push(FileAttr::LeaseTime);
+                        }
+                        FileAttr::Change => {
+                            attrs.push(FileAttrValue::Change(filehandle.attr_change));
+                            answer_attrs.push(FileAttr::Change);
+                        }
+                        FileAttr::Size => {
+                            attrs.push(FileAttrValue::Size(filehandle.attr_size));
+                            answer_attrs.push(FileAttr::Size);
+                        }
+                        FileAttr::LinkSupport => {
+                            attrs.push(FileAttrValue::LinkSupport(self.attr_link_support()));
+                            answer_attrs.push(FileAttr::LinkSupport);
+                        }
+                        FileAttr::SymlinkSupport => {
+                            attrs.push(FileAttrValue::SymlinkSupport(self.attr_symlink_support()));
+                            answer_attrs.push(FileAttr::SymlinkSupport);
+                        }
+                        FileAttr::NamedAttr => {
+                            attrs.push(FileAttrValue::NamedAttr(self.attr_named_attr()));
+                            answer_attrs.push(FileAttr::NamedAttr);
+                        }
+                        FileAttr::AclSupport => {
+                            attrs.push(FileAttrValue::AclSupport(self.attr_acl_support()));
+                            answer_attrs.push(FileAttr::AclSupport);
+                        }
+                        FileAttr::Fsid => {
+                            attrs.push(FileAttrValue::Fsid(filehandle.attr_fsid));
+                            answer_attrs.push(FileAttr::Fsid);
+                        }
+                        FileAttr::UniqueHandles => {
+                            attrs.push(FileAttrValue::UniqueHandles(self.attr_unique_handles()));
+                            answer_attrs.push(FileAttr::UniqueHandles);
+                        }
+                        FileAttr::FhExpireType => {
+                            attrs.push(FileAttrValue::FhExpireType(self.attr_expire_type()));
+                            answer_attrs.push(FileAttr::FhExpireType);
+                        }
+                        FileAttr::RdattrError => {
+                            attrs.push(FileAttrValue::RdattrError(self.attr_rdattr_error()));
+                            answer_attrs.push(FileAttr::RdattrError);
+                        }
+                        FileAttr::Fileid => {
+                            attrs.push(FileAttrValue::Fileid(filehandle.attr_fileid));
+                            answer_attrs.push(FileAttr::Fileid);
+                        }
+                        FileAttr::Mode => {
+                            attrs.push(FileAttrValue::Mode(self.attr_mode()));
+                            answer_attrs.push(FileAttr::Mode);
+                        }
+                        FileAttr::Numlinks => {
+                            attrs.push(FileAttrValue::Numlinks(self.attr_numlinks()));
+                            answer_attrs.push(FileAttr::Numlinks);
+                        }
+                        FileAttr::Owner => {
+                            attrs.push(FileAttrValue::Owner(filehandle.attr_owner.clone()));
+                            answer_attrs.push(FileAttr::Owner);
+                        }
+                        FileAttr::OwnerGroup => {
+                            attrs.push(FileAttrValue::OwnerGroup(
+                                filehandle.attr_owner_group.clone(),
+                            ));
+                            answer_attrs.push(FileAttr::OwnerGroup);
+                        }
+                        FileAttr::SpaceUsed => {
+                            attrs.push(FileAttrValue::SpaceUsed(filehandle.attr_space_used));
+                            answer_attrs.push(FileAttr::SpaceUsed);
+                        }
+                        FileAttr::TimeAccess => {
+                            attrs.push(FileAttrValue::TimeAccess(filehandle.attr_time_access));
+                            answer_attrs.push(FileAttr::TimeAccess);
+                        }
+                        FileAttr::TimeMetadata => {
+                            attrs.push(FileAttrValue::TimeMetadata(filehandle.attr_time_metadata));
+                            answer_attrs.push(FileAttr::TimeMetadata);
+                        }
+                        FileAttr::TimeModify => {
+                            attrs.push(FileAttrValue::TimeModify(filehandle.attr_time_modify));
+                            answer_attrs.push(FileAttr::TimeModify);
+                        }
+                        // FileAttr::MountedOnFileid => {
+                        //     attrs.push(FileAttrValue::MountedOnFileid(
+                        //         filehandle.attr_mounted_on_fileid,
+                        //     ));
+                        //     answer_attrs.push(FileAttr::MountedOnFileid);
+                        // }
+                        _ => {}
+                    }
                 }
-                FileAttr::Type => {
-                    attrs.push(FileAttrValue::Type(filehandle.attr_type));
-                    answer_attrs.push(FileAttr::Type);
-                }
-                FileAttr::LeaseTime => {
-                    attrs.push(FileAttrValue::LeaseTime(self.attr_lease_time()));
-                    answer_attrs.push(FileAttr::LeaseTime);
-                }
-                FileAttr::Change => {
-                    attrs.push(FileAttrValue::Change(filehandle.attr_change));
-                    answer_attrs.push(FileAttr::Change);
-                }
-                FileAttr::Size => {
-                    attrs.push(FileAttrValue::Size(filehandle.attr_size));
-                    answer_attrs.push(FileAttr::Size);
-                }
-                FileAttr::LinkSupport => {
-                    attrs.push(FileAttrValue::LinkSupport(self.attr_link_support()));
-                    answer_attrs.push(FileAttr::LinkSupport);
-                }
-                FileAttr::SymlinkSupport => {
-                    attrs.push(FileAttrValue::SymlinkSupport(self.attr_symlink_support()));
-                    answer_attrs.push(FileAttr::SymlinkSupport);
-                }
-                FileAttr::NamedAttr => {
-                    attrs.push(FileAttrValue::NamedAttr(self.attr_named_attr()));
-                    answer_attrs.push(FileAttr::NamedAttr);
-                }
-                FileAttr::AclSupport => {
-                    attrs.push(FileAttrValue::AclSupport(self.attr_acl_support()));
-                    answer_attrs.push(FileAttr::AclSupport);
-                }
-                FileAttr::Fsid => {
-                    attrs.push(FileAttrValue::Fsid(filehandle.attr_fsid));
-                    answer_attrs.push(FileAttr::Fsid);
-                }
-                FileAttr::UniqueHandles => {
-                    attrs.push(FileAttrValue::UniqueHandles(self.attr_unique_handles()));
-                    answer_attrs.push(FileAttr::UniqueHandles);
-                }
-                FileAttr::FhExpireType => {
-                    attrs.push(FileAttrValue::FhExpireType(self.attr_expire_type()));
-                    answer_attrs.push(FileAttr::FhExpireType);
-                }
-                FileAttr::RdattrError => {
-                    attrs.push(FileAttrValue::RdattrError(self.attr_rdattr_error()));
-                    answer_attrs.push(FileAttr::RdattrError);
-                }
-                FileAttr::Fileid => {
-                    attrs.push(FileAttrValue::Fileid(filehandle.attr_fileid));
-                    answer_attrs.push(FileAttr::Fileid);
-                }
-                FileAttr::Mode => {
-                    attrs.push(FileAttrValue::Mode(self.attr_mode()));
-                    answer_attrs.push(FileAttr::Mode);
-                }
-                FileAttr::Numlinks => {
-                    attrs.push(FileAttrValue::Numlinks(self.attr_numlinks()));
-                    answer_attrs.push(FileAttr::Numlinks);
-                }
-                FileAttr::Owner => {
-                    attrs.push(FileAttrValue::Owner(filehandle.attr_owner.clone()));
-                    answer_attrs.push(FileAttr::Owner);
-                }
-                FileAttr::OwnerGroup => {
-                    attrs.push(FileAttrValue::OwnerGroup(
-                        filehandle.attr_owner_group.clone(),
-                    ));
-                    answer_attrs.push(FileAttr::OwnerGroup);
-                }
-                FileAttr::SpaceUsed => {
-                    attrs.push(FileAttrValue::SpaceUsed(filehandle.attr_space_used));
-                    answer_attrs.push(FileAttr::SpaceUsed);
-                }
-                FileAttr::TimeAccess => {
-                    attrs.push(FileAttrValue::TimeAccess(filehandle.attr_time_access));
-                    answer_attrs.push(FileAttr::TimeAccess);
-                }
-                FileAttr::TimeMetadata => {
-                    attrs.push(FileAttrValue::TimeMetadata(filehandle.attr_time_metadata));
-                    answer_attrs.push(FileAttr::TimeMetadata);
-                }
-                FileAttr::TimeModify => {
-                    attrs.push(FileAttrValue::TimeModify(filehandle.attr_time_modify));
-                    answer_attrs.push(FileAttr::TimeModify);
-                }
-                // FileAttr::MountedOnFileid => {
-                //     attrs.push(FileAttrValue::MountedOnFileid(
-                //         filehandle.attr_mounted_on_fileid,
-                //     ));
-                //     answer_attrs.push(FileAttr::MountedOnFileid);
-                // }
-                _ => {}
+                Some(Box::new((answer_attrs, attrs)))
             }
         }
-        Box::new((answer_attrs, attrs))
     }
 
     // pub fn attr_filehandle(&self) -> &Vec<u8> {
@@ -430,18 +483,11 @@ impl FileManager {
         ]
     }
 
-    // pub fn attr_type(&self) -> NfsFtype4 {
-    //     // type:
-    //     // Designates the type of an object in terms of one of a number of
-    //     // special constants
-    //     self.current_fh.as_ref().unwrap().attr_type
-    // }
-
     pub fn attr_expire_type(&self) -> u32 {
         // fh_expire_type:
         // The server uses this to specify filehandle expiration behavior to the
         // client.  See Section 4 for additional description.
-        FH4_PERSISTENT
+        FH4_VOLATILE_ANY
     }
 
     // pub fn attr_change(&self) -> u64 {
@@ -479,14 +525,6 @@ impl FileManager {
         // object has a non-empty named attribute directory.
         false
     }
-
-    // pub fn attr_fsid(&self) -> Fsid4 {
-    //     // fsid:
-    //     // Unique file system identifier for the file system holding this
-    //     // object.  The fsid attribute has major and minor components, each of
-    //     // which are of data type uint64_t.
-    //     self.current_fh.as_ref().unwrap().attr_fsid
-    // }
 
     pub fn attr_unique_handles(&self) -> bool {
         // unique_handles:
@@ -533,7 +571,7 @@ impl FileManager {
     pub fn attr_numlinks(&self) -> u32 {
         // numlinks:
         // Number of hard links to this object.
-        2
+        1
     }
 
     // pub fn attr_owner(&self) -> &String {
@@ -589,13 +627,13 @@ pub struct GetRootFilehandleRequest {
 pub struct GetFilehandleRequest {
     pub path: Option<String>,
     pub filehandle: Option<Vec<u8>>,
-    pub respond_to: oneshot::Sender<Box<Filehandle>>,
+    pub respond_to: oneshot::Sender<Option<Box<Filehandle>>>,
 }
 
 pub struct GetFilehandleAttrsRequest {
     pub filehandle_id: Vec<u8>,
     pub attrs_request: Vec<FileAttr>,
-    pub respond_to: oneshot::Sender<Box<(Vec<FileAttr>, Vec<FileAttrValue>)>>,
+    pub respond_to: oneshot::Sender<Option<Box<(Vec<FileAttr>, Vec<FileAttrValue>)>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -625,7 +663,7 @@ impl FileManagerHandle {
     ) -> Result<Box<Filehandle>, FileManagerError> {
         let (tx, rx) = oneshot::channel();
         let req = GetFilehandleRequest {
-            path,
+            path: path.clone(),
             filehandle,
             respond_to: tx,
         };
@@ -634,7 +672,27 @@ impl FileManagerHandle {
             .await
             .unwrap();
         match rx.await {
-            Ok(fh) => Ok(fh),
+            Ok(fh) => {
+                if let Some(fh) = fh {
+                    return Ok(fh);
+                }
+                if let Some(path) = path {
+                    debug!("File not found: {:?}", path);
+                    Err(FileManagerError {
+                        nfs_error: NfsStat4::Nfs4errStale,
+                    })
+                } else {
+                    debug!("Filehandle not found");
+                    // https://datatracker.ietf.org/doc/html/rfc7530#section-4.2.3
+                    // If the server can definitively determine that a
+                    // volatile filehandle refers to an object that has been removed, the
+                    // server should return NFS4ERR_STALE to the client (as is the case for
+                    // persistent filehandles)
+                    Err(FileManagerError {
+                        nfs_error: NfsStat4::Nfs4errStale,
+                    })
+                }
+            }
             Err(_) => Err(FileManagerError {
                 nfs_error: NfsStat4::Nfs4errServerfault,
             }),
@@ -675,7 +733,14 @@ impl FileManagerHandle {
             .await
             .unwrap();
         match rx.await {
-            Ok(attrs) => Ok(attrs),
+            Ok(attrs) => {
+                if let Some(attrs) = attrs {
+                    return Ok(attrs);
+                }
+                Err(FileManagerError {
+                    nfs_error: NfsStat4::Nfs4errBadhandle,
+                })
+            }
             Err(_) => Err(FileManagerError {
                 nfs_error: NfsStat4::Nfs4errServerfault,
             }),

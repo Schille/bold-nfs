@@ -5,7 +5,7 @@ use crate::server::{
     nfs40::NfsStat4, operation::NfsOperation, request::NfsRequest, response::NfsOpResponse,
 };
 
-use super::{Fattr4, Getattr4args, Getattr4res, Getattr4resok, NfsResOp4};
+use super::{Fattr4, Getattr4args, Getattr4resok, NfsResOp4};
 
 #[async_trait]
 impl NfsOperation for Getattr4args {
@@ -18,11 +18,14 @@ impl NfsOperation for Getattr4args {
         match filehandle {
             None => {
                 error!("None filehandle");
-                NfsOpResponse {
+                return NfsOpResponse {
                     request,
-                    result: None,
-                    status: NfsStat4::Nfs4errServerfault,
-                }
+                    result: Some(NfsResOp4::Opgetattr(Getattr4resok {
+                        obj_attributes: None,
+                        status: NfsStat4::Nfs4errStale,
+                    })),
+                    status: NfsStat4::Nfs4errStale,
+                };
             }
             Some(filehandle_id) => {
                 let resp = request
@@ -35,7 +38,10 @@ impl NfsOperation for Getattr4args {
                         error!("FileManagerError {:?}", e);
                         return NfsOpResponse {
                             request,
-                            result: None,
+                            result: Some(NfsResOp4::Opgetattr(Getattr4resok {
+                                obj_attributes: None,
+                                status: e.nfs_error.clone(),
+                            })),
                             status: e.nfs_error,
                         };
                     }
@@ -43,12 +49,13 @@ impl NfsOperation for Getattr4args {
 
                 NfsOpResponse {
                     request,
-                    result: Some(NfsResOp4::Opgetattr(Getattr4res::Resok4(Getattr4resok {
-                        obj_attributes: Fattr4 {
+                    result: Some(NfsResOp4::Opgetattr(Getattr4resok {
+                        status: NfsStat4::Nfs4Ok,
+                        obj_attributes: Some(Fattr4 {
                             attrmask: answer_attrs,
                             attr_vals: attrs,
-                        },
-                    }))),
+                        }),
+                    })),
                     status: NfsStat4::Nfs4Ok,
                 }
             }

@@ -22,7 +22,7 @@ impl NfsOperation for Readdir4args {
                 return NfsOpResponse {
                     request,
                     result: None,
-                    status: NfsStat4::Nfs4errServerfault,
+                    status: NfsStat4::Nfs4errFhexpired,
                 };
             }
         };
@@ -41,7 +41,7 @@ impl NfsOperation for Readdir4args {
             // if the cookie value is progressed, we add only subsequent filehandles
             if i >= self.cookie as usize {
                 // this is a poor man's estimation of the XRD outputs bytes, must be improved
-                // we need to know the definitve size of the output of the XDR message here, but how?
+                // we need to know the definitive size of the output of the XDR message here, but how?
                 dircount_actual = dircount_actual + 8 + name.len() + 5;
                 maxcount_actual += 200;
                 if dircount == 0 || (dircount > dircount_actual && maxcount > maxcount_actual) {
@@ -55,7 +55,7 @@ impl NfsOperation for Readdir4args {
                             return NfsOpResponse {
                                 request,
                                 result: None,
-                                status: NfsStat4::Nfs4errServerfault,
+                                status: NfsStat4::Nfs4errFhexpired,
                             };
                         }
                         Ok(filehandle) => {

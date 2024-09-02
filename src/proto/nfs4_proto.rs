@@ -1,14 +1,10 @@
 extern crate serde_bytes;
 extern crate serde_xdr;
-use super::utils::file_attrs_to_bitmap;
+use super::utils::{read_attr_values, read_attrs, write_argarray, write_attr_values, write_attrs};
 
 use num_derive::{FromPrimitive, ToPrimitive};
-use num_traits::{FromPrimitive, ToBytes, ToPrimitive};
 
-use serde::ser::{SerializeSeq, SerializeTuple};
-use serde::{Serialize, Serializer};
 use serde_derive::{Deserialize, Serialize};
-// use serde::{Deserialize, Deserializer};
 
 /*
  * This code was derived from RFC 7531.
@@ -63,7 +59,8 @@ pub enum NfsFtype4 {
 /*
  * Error status
  */
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToPrimitive)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, ToPrimitive)]
+#[repr(u32)]
 pub enum NfsStat4 {
     Nfs4Ok = 0,         /* everything is okay       */
     Nfs4errPerm = 1,    /* caller not privileged    */
@@ -491,113 +488,6 @@ pub struct Fattr4 {
     pub attr_vals: Vec<FileAttrValue>,
 }
 
-fn read_attr_values<'de, D>(deserializer: D) -> Result<Vec<FileAttrValue>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let _attrs_raw = <Vec<u32> as serde::Deserialize>::deserialize(deserializer).unwrap();
-    let attrs = Vec::new();
-    // TODO
-    Ok(attrs)
-}
-
-fn write_attr_values<T, S>(v: &T, serializer: S) -> Result<S::Ok, S::Error>
-where
-    T: AsRef<[FileAttrValue]>,
-    S: Serializer,
-{
-    let attr_values = v.as_ref();
-
-    let mut buffer: Vec<u8> = Vec::new();
-
-    for val in attr_values {
-        // println!("val: {:?}", val);
-        match val {
-            FileAttrValue::Type(v) => {
-                buffer.extend_from_slice(ToPrimitive::to_u32(v).unwrap().to_be_bytes().as_ref());
-            }
-            FileAttrValue::LeaseTime(v) => {
-                buffer.extend_from_slice(v.to_be_bytes().as_ref());
-            }
-            FileAttrValue::SupportedAttrs(v) => {
-                let attrs = file_attrs_to_bitmap(v).unwrap();
-                buffer.extend_from_slice((attrs.len() as u32).to_be_bytes().as_ref());
-                attrs.iter().for_each(|attr| {
-                    buffer.extend_from_slice(attr.to_be_bytes().as_ref());
-                });
-            }
-            FileAttrValue::FhExpireType(v) => {
-                buffer.extend_from_slice(v.to_be_bytes().as_ref());
-            }
-            FileAttrValue::Change(v) => {
-                buffer.extend_from_slice(v.to_be_bytes().as_ref());
-            }
-            FileAttrValue::Size(v) => {
-                buffer.extend_from_slice(v.to_be_bytes().as_ref());
-            }
-            FileAttrValue::LinkSupport(v) => {
-                buffer.extend_from_slice((*v as u32).to_be_bytes().as_ref());
-            }
-            FileAttrValue::SymlinkSupport(v) => {
-                buffer.extend_from_slice((*v as u32).to_be_bytes().as_ref());
-            }
-            FileAttrValue::NamedAttr(v) => {
-                buffer.extend_from_slice((*v as u32).to_be_bytes().as_ref());
-            }
-            FileAttrValue::Fsid(v) => {
-                buffer.extend_from_slice(v.major.to_be_bytes().as_ref());
-                buffer.extend_from_slice(v.minor.to_be_bytes().as_ref());
-            }
-            FileAttrValue::UniqueHandles(v) => {
-                buffer.extend_from_slice((*v as u32).to_be_bytes().as_ref());
-            }
-            FileAttrValue::RdattrError(v) => {
-                buffer.extend_from_slice(ToPrimitive::to_u32(v).unwrap().to_be_bytes().as_ref());
-            }
-            FileAttrValue::Fileid(v) => {
-                buffer.extend_from_slice(v.to_be_bytes().as_ref());
-            }
-            FileAttrValue::AclSupport(v) => {
-                buffer.extend_from_slice(v.to_be_bytes().as_ref());
-            }
-            FileAttrValue::Mode(v) => {
-                buffer.extend_from_slice(v.to_be_bytes().as_ref());
-            }
-            FileAttrValue::TimeAccess(v) => {
-                buffer.extend_from_slice(v.seconds.to_be_bytes().as_ref());
-                buffer.extend_from_slice(v.nseconds.to_be_bytes().as_ref());
-            }
-            FileAttrValue::TimeModify(v) => {
-                buffer.extend_from_slice(v.seconds.to_be_bytes().as_ref());
-                buffer.extend_from_slice(v.nseconds.to_be_bytes().as_ref());
-            }
-            FileAttrValue::TimeMetadata(v) => {
-                buffer.extend_from_slice(v.seconds.to_be_bytes().as_ref());
-                buffer.extend_from_slice(v.nseconds.to_be_bytes().as_ref());
-            }
-            FileAttrValue::MountedOnFileid(v) => {
-                buffer.extend_from_slice(v.to_be_bytes().as_ref());
-            }
-            FileAttrValue::Owner(v) => {
-                buffer.extend_from_slice((v.len() as u32).to_be_bytes().as_ref());
-                buffer.extend_from_slice(v.as_bytes());
-            }
-            FileAttrValue::OwnerGroup(v) => {
-                buffer.extend_from_slice((v.len() as u32).to_be_bytes().as_ref());
-                buffer.extend_from_slice(v.as_bytes());
-            }
-            FileAttrValue::SpaceUsed(v) => {
-                buffer.extend_from_slice(v.to_be_bytes().as_ref());
-            }
-            FileAttrValue::Numlinks(v) => {
-                buffer.extend_from_slice(v.to_be_bytes().as_ref());
-            }
-            _ => {}
-        }
-    }
-    // println!("ser data: {:?}", buffer);
-    serializer.serialize_bytes(&buffer)
-}
 /*
  * Change info for the client
  */
@@ -903,45 +793,10 @@ pub struct Getattr4args {
     pub attr_request: Vec<FileAttr>,
 }
 
-fn read_attrs<'de, D>(deserializer: D) -> Result<Vec<FileAttr>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let attrs_raw = <Vec<u32> as serde::Deserialize>::deserialize(deserializer).unwrap();
-
-    let mut attrs = Vec::new();
-    for (idx, segment) in attrs_raw.iter().enumerate() {
-        for n in 0..32 {
-            let bit = (segment >> n) & 1;
-            if bit == 1 {
-                let attr: Option<FileAttr> = FromPrimitive::from_u32((idx * 32 + n) as u32);
-                if attr.is_some() {
-                    attrs.push(attr.unwrap());
-                }
-            }
-        }
-    }
-    Ok(attrs)
-}
-
-fn write_attrs<T, S>(v: &T, serializer: S) -> Result<S::Ok, S::Error>
-where
-    T: AsRef<Vec<FileAttr>>,
-    S: Serializer,
-{
-    let values = v.as_ref();
-    let attrs = file_attrs_to_bitmap(values).unwrap();
-
-    let mut seq = serializer.serialize_seq(Some(attrs.len()))?;
-    for attr in attrs {
-        let _ = seq.serialize_element(&attr);
-    }
-    seq.end()
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct Getattr4resok {
-    pub obj_attributes: Fattr4,
+    pub status: NfsStat4,
+    pub obj_attributes: Option<Fattr4>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1808,7 +1663,7 @@ pub enum NfsResOp4 {
     Opcreate(Create4res) = 6,
     Opdelegpurge(DelegPurge4res) = 7,
     Opdelegreturn(DelegReturn4res) = 8,
-    Opgetattr(Getattr4res) = 9,
+    Opgetattr(Getattr4resok) = 9,
     Opgetfh(GetFh4res) = 10,
     Oplink(Link4res) = 11,
     Oplock(Lock4res) = 12,
@@ -1857,19 +1712,6 @@ pub struct Compound4res {
     pub tag: String,
     #[serde(serialize_with = "write_argarray")]
     pub resarray: Vec<NfsResOp4>,
-}
-
-fn write_argarray<T, S>(v: &T, serializer: S) -> Result<S::Ok, S::Error>
-where
-    T: AsRef<[NfsResOp4]>,
-    S: Serializer,
-{
-    let values = v.as_ref();
-    if values.is_empty() {
-        serializer.serialize_none()
-    } else {
-        values.serialize(serializer)
-    }
 }
 
 /*

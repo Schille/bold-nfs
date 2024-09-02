@@ -25,7 +25,7 @@ impl NfsOperation for Lookup4args {
                 return NfsOpResponse {
                     request,
                     result: None,
-                    status: NfsStat4::Nfs4errServerfault,
+                    status: NfsStat4::Nfs4errFhexpired,
                 };
             }
         };
@@ -44,11 +44,14 @@ impl NfsOperation for Lookup4args {
         let filehandle = match resp {
             Ok(filehandle) => filehandle,
             Err(e) => {
-                error!("MailboxError {:?}", e);
+                error!("FileManagerError {:?}", e);
+                request.unset_filehandle_id();
                 return NfsOpResponse {
                     request,
-                    result: None,
-                    status: NfsStat4::Nfs4errServerfault,
+                    result: Some(NfsResOp4::Oplookup(Lookup4res {
+                        status: e.nfs_error.clone(),
+                    })),
+                    status: e.nfs_error,
                 };
             }
         };

@@ -22,7 +22,7 @@ impl NfsOperation for Read4args {
                 return NfsOpResponse {
                     request,
                     result: None,
-                    status: NfsStat4::Nfs4errServerfault,
+                    status: NfsStat4::Nfs4errFhexpired,
                 };
             }
         };
