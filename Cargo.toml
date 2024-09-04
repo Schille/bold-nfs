@@ -27,3 +27,5 @@ serde_bytes_ng = "0.1.2"
 num-traits = "0.2.18"
 num-derive = "0.4.2"
 async-trait = "0.1.81"
+tracing-test = "0.2.5"
+

@@ -61,11 +61,17 @@ struct ConfirmClientRequest {
     pub respond_to: oneshot::Sender<Result<ClientEntry, ClientManagerError>>,
 }
 
+struct RenewLeasesRequest {
+    pub client_id: u64,
+    pub respond_to: oneshot::Sender<Result<(), ClientManagerError>>,
+}
+
 enum ClientManagerMessage {
     UpsertClient(UpsertClientRequest),
     ConfirmClient(ConfirmClientRequest),
     SetCurrentFilehandle(SetCurrentFilehandleRequest),
     GetCurrentFilehandle(GetCurrentFilehandleRequest),
+    RenewLeases(RenewLeasesRequest),
 }
 
 pub struct SetCurrentFilehandleRequest {
@@ -114,6 +120,10 @@ impl ClientManager {
             }
             ClientManagerMessage::GetCurrentFilehandle(request) => {
                 let result = self.get_current_fh(request.client_addr);
+                let _ = request.respond_to.send(result);
+            }
+            ClientManagerMessage::RenewLeases(request) => {
+                let result = self.renew_leases(request.client_id);
                 let _ = request.respond_to.send(result);
             }
         }
@@ -234,8 +244,8 @@ impl ClientManager {
             }
         }
 
-        if old_confirmed.is_some() {
-            db.remove_by_setclientid_confirm(&(old_confirmed.unwrap().setclientid_confirm));
+        if let Some(old_confirmed) = old_confirmed {
+            db.remove_by_setclientid_confirm(&(old_confirmed.setclientid_confirm));
         }
 
         match new_confirmed {
@@ -249,6 +259,18 @@ impl ClientManager {
                 nfs_error: NfsStat4::Nfs4errStaleClientid,
             }),
         }
+    }
+
+    fn renew_leases(&mut self, client_id: u64) -> Result<(), ClientManagerError> {
+        let db = Arc::get_mut(&mut self.db).unwrap();
+        let entries = db.get_by_clientid(&client_id);
+        if entries.is_empty() {
+            return Err(ClientManagerError {
+                nfs_error: NfsStat4::Nfs4errStaleClientid,
+            });
+        }
+        // todo: implement lease renewal
+        Ok(())
     }
 
     pub fn get_record_count(&mut self) -> usize {
@@ -371,6 +393,26 @@ impl ClientManagerHandle {
             Ok(_) => rx.await.unwrap(),
             Err(e) => {
                 error!("Couldn't confirm client: {:?}", e);
+                Err(ClientManagerError {
+                    nfs_error: NfsStat4::Nfs4errServerfault,
+                })
+            }
+        }
+    }
+
+    pub async fn renew_leases(&self, client_id: u64) -> Result<(), ClientManagerError> {
+        let (tx, rx) = oneshot::channel();
+        let resp = self
+            .sender
+            .send(ClientManagerMessage::RenewLeases(RenewLeasesRequest {
+                client_id,
+                respond_to: tx,
+            }))
+            .await;
+        match resp {
+            Ok(_) => rx.await.unwrap(),
+            Err(e) => {
+                error!("Couldn't renew leases: {:?}", e);
                 Err(ClientManagerError {
                     nfs_error: NfsStat4::Nfs4errServerfault,
                 })
@@ -546,51 +588,4 @@ mod tests {
         assert_eq!(same_client.principal, Some("Linux".to_string()));
         assert!(same_client.confirmed);
     }
-
-    // #[tokio::test]
-    // async fn test_upsert_clients_async() {
-    //     let manager = Arc::new(Mutex::new(ClientManager::new()));
-    //     async fn client_spawn(manager: Arc<Mutex<ClientManager>>) {
-    //         let mut manager = manager.lock().unwrap();
-    //         let verifier = [0; 8];
-    //         let id: String = rand::thread_rng()
-    //             .sample_iter(&Alphanumeric)
-    //             .take(12)
-    //             .map(char::from)
-    //             .collect();
-    //         let callback = ClientCallback {
-    //             program: 0,
-    //             rnetid: "tcp".to_string(),
-    //             raddr: "".to_string(),
-    //             callback_ident: 0,
-    //         };
-
-    //         let client = manager
-    //             .upsert_client(verifier, id.clone(), callback.clone(), None)
-    //             .unwrap();
-
-    //         // confirm after update
-
-    //         let confirmed_client = manager
-    //             .confirm_client(client.clientid, client.setclientid_confirm, None)
-    //             .unwrap();
-    //         assert!(confirmed_client.confirmed);
-    //     }
-
-    //     let mut jobs = Vec::new();
-    //     for _ in 0..1000 {
-    //         jobs.push(client_spawn(manager.clone()));
-    //     }
-
-    //     let now = Instant::now();
-    //     let _ = futures::future::join_all(jobs).await;
-    //     let eps = now.elapsed();
-
-    //     let mut manager = manager.lock().unwrap();
-    //     assert_eq!(manager.get_record_count(), 1000);
-    //     println!("Elapsed time: {:?}", eps.as_millis());
-    //     assert!(eps.as_millis() < 50);
-    //     let c_99 = manager.get_client_confirmed(99);
-    //     assert!(c_99.unwrap().confirmed);
-    // }
 }

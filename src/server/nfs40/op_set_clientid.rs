@@ -53,7 +53,7 @@ impl NfsOperation for SetClientId4args {
 }
 
 #[cfg(test)]
-mod tests {
+mod integration_tests {
 
     use crate::{
         server::{

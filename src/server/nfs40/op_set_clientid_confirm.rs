@@ -30,9 +30,101 @@ impl NfsOperation for SetClientIdConfirm4args {
                 NfsOpResponse {
                     request,
                     result: None,
-                    status: NfsStat4::Nfs4errServerfault,
+                    status: e.nfs_error,
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod integration_tests {
+    use crate::{
+        server::{
+            nfs40::{
+                CbClient4, ClientAddr4, NfsClientId4, NfsResOp4, NfsStat4, SetClientId4args,
+                SetClientId4res, SetClientIdConfirm4args,
+            },
+            operation::NfsOperation,
+        },
+        test_utils::create_nfs40_server,
+    };
+    use tracing_test::traced_test;
+
+    fn create_client(verifier: [u8; 8], id: String) -> SetClientId4args {
+        SetClientId4args {
+            client: NfsClientId4 { verifier, id },
+            callback: CbClient4 {
+                cb_program: 0,
+                cb_location: ClientAddr4 {
+                    rnetid: "tcp".to_string(),
+                    raddr: "127.0.0.1.149.18".to_string(),
+                },
+            },
+            callback_ident: 1,
+        }
+    }
+
+    fn create_client_confirm(verifier: [u8; 8], client_id: u64) -> SetClientIdConfirm4args {
+        SetClientIdConfirm4args {
+            clientid: client_id,
+            setclientid_confirm: verifier,
+        }
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn confirm_clients() {
+        let request = create_nfs40_server().await;
+
+        let client1 = create_client(
+            [23, 213, 67, 174, 197, 95, 35, 119],
+            "Linux NFSv4.0 LAPTOP/127.0.0.1".to_string(),
+        );
+        let client2 = create_client(
+            [123, 213, 2, 174, 3, 95, 5, 119],
+            "Linux NFSv4.0 LAPTOP-1/127.0.0.1".to_string(),
+        );
+
+        // setup clients
+        let res_client1 = client1.execute(request.clone()).await;
+        let (client1_id, client1_confirm) = match res_client1.result.unwrap() {
+            NfsResOp4::Opsetclientid(res) => match res {
+                SetClientId4res::Resok4(resok) => (resok.clientid, resok.setclientid_confirm),
+                _ => panic!("Unexpected response"),
+            },
+            _ => panic!("Unexpected response"),
+        };
+
+        let res_client2 = client2.execute(request.clone()).await;
+        let (client2_id, client2_confirm) = match res_client2.result.unwrap() {
+            NfsResOp4::Opsetclientid(res) => match res {
+                SetClientId4res::Resok4(resok) => (resok.clientid, resok.setclientid_confirm),
+                _ => panic!("Unexpected response"),
+            },
+            _ => panic!("Unexpected response"),
+        };
+
+        // confirm client1
+        let conf_client1: SetClientIdConfirm4args =
+            create_client_confirm(client1_confirm, client1_id);
+        let res_confirm_client1 = conf_client1.execute(request.clone()).await;
+        assert_eq!(res_confirm_client1.status, NfsStat4::Nfs4Ok);
+
+        // confirm client2
+        let conf_client2: SetClientIdConfirm4args =
+            create_client_confirm(client2_confirm, client2_id);
+        let res_confirm_client2 = conf_client2.execute(request.clone()).await;
+        assert_eq!(res_confirm_client2.status, NfsStat4::Nfs4Ok);
+
+        // The server has recorded an unconfirmed { v, x, c, k, s } record and a confirmed { v, x, c, l, t } record, such that s != t
+        // the server returns NFS4ERR_CLID_INUSE
+        // todo: implement this test case
+
+        // The server has no record of a confirmed or unconfirmed { *, *, c, *, s }.  The server returns NFS4ERR_STALE_CLIENTID.
+        let conf_client3: SetClientIdConfirm4args =
+            create_client_confirm([23, 213, 67, 174, 197, 95, 35, 119], 10);
+        let res_confirm_client3 = conf_client3.execute(request.clone()).await;
+        assert_eq!(res_confirm_client3.status, NfsStat4::Nfs4errStaleClientid);
     }
 }

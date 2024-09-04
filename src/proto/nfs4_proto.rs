@@ -1357,7 +1357,7 @@ pub enum Rename4res {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Renew4args {
-    clientid: Clientid4,
+    pub clientid: Clientid4,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
