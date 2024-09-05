@@ -57,32 +57,15 @@ mod integration_tests {
 
     use crate::{
         server::{
-            nfs40::{
-                CbClient4, ClientAddr4, NfsClientId4, NfsResOp4, NfsStat4, SetClientId4args,
-                SetClientId4res,
-            },
+            nfs40::{NfsResOp4, NfsStat4, SetClientId4res},
             operation::NfsOperation,
         },
-        test_utils::create_nfs40_server,
+        test_utils::{create_client, create_nfs40_server},
     };
 
-    pub fn create_client(verifier: [u8; 8], id: String) -> SetClientId4args {
-        SetClientId4args {
-            client: NfsClientId4 { verifier, id },
-            callback: CbClient4 {
-                cb_program: 0,
-                cb_location: ClientAddr4 {
-                    rnetid: "tcp".to_string(),
-                    raddr: "127.0.0.1.149.195".to_string(),
-                },
-            },
-            callback_ident: 1,
-        }
-    }
-
     #[tokio::test]
-    async fn setup_new_client() {
-        let request = create_nfs40_server().await;
+    async fn test_setup_new_client() {
+        let request = create_nfs40_server(None).await;
 
         let client1 = create_client(
             [23, 213, 67, 174, 197, 95, 35, 119],

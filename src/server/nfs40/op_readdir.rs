@@ -158,3 +158,190 @@ impl NfsOperation for Readdir4args {
         }
     }
 }
+
+#[cfg(test)]
+mod integration_tests {
+
+    use tracing_test::traced_test;
+    use vfs::{MemoryFS, VfsPath};
+
+    use crate::{
+        server::{
+            nfs40::{
+                DirList4, FileAttr, FileAttrValue, NfsFtype4, NfsResOp4, NfsStat4, PutFh4args,
+                ReadDir4res, ReadDir4resok, Readdir4args,
+            },
+            operation::NfsOperation,
+        },
+        test_utils::create_nfs40_server,
+    };
+
+    fn create_fake_fs() -> VfsPath {
+        let root: VfsPath = MemoryFS::new().into();
+        let file1 = root.join("file1.txt").unwrap();
+        file1
+            .create_file()
+            .unwrap()
+            .write_all(b"Hello, World!")
+            .unwrap();
+
+        let file1 = root.join("file1.txt").unwrap();
+        file1
+            .create_file()
+            .unwrap()
+            .write_all(b"Hello, loooooooong world!")
+            .unwrap();
+
+        let dir1 = root.join("dir1").unwrap();
+        dir1.create_dir_all().unwrap();
+
+        let file2 = dir1.join("file2.txt").unwrap();
+        file2
+            .create_file()
+            .unwrap()
+            .write_all(b"Hello, file2!")
+            .unwrap();
+
+        root
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_read_directory() {
+        // dummy fs, empty
+        let request = create_nfs40_server(None).await;
+        let fh = request.file_manager().get_root_filehandle().await;
+
+        let putfh_args = PutFh4args {
+            object: fh.unwrap().id,
+        };
+        let putfh_request = putfh_args.execute(request).await;
+
+        let readdir_args = Readdir4args {
+            cookie: 0,
+            cookieverf: [0u8; 8],
+            dircount: 262122,
+            maxcount: 1048488,
+            attr_request: vec![
+                FileAttr::Type,
+                FileAttr::Change,
+                FileAttr::Size,
+                FileAttr::Fsid,
+                FileAttr::RdattrError,
+                FileAttr::Filehandle,
+                FileAttr::Fileid,
+                FileAttr::Mode,
+                FileAttr::Numlinks,
+                FileAttr::Owner,
+                FileAttr::OwnerGroup,
+                FileAttr::Rawdev,
+                FileAttr::SpaceUsed,
+                FileAttr::TimeAccess,
+                FileAttr::TimeMetadata,
+                FileAttr::TimeModify,
+                FileAttr::MountedOnFileid,
+            ],
+        };
+
+        let readdir_response = readdir_args.execute(putfh_request.request).await;
+        assert_eq!(readdir_response.status, NfsStat4::Nfs4Ok);
+        assert_eq!(
+            readdir_response.result,
+            Some(NfsResOp4::Opreaddir(ReadDir4res::Resok4(ReadDir4resok {
+                cookieverf: [0, 0, 0, 0, 0, 0, 0, 0],
+                reply: DirList4 {
+                    entries: None,
+                    eof: true
+                }
+            })))
+        );
+
+        // a more filled directory, still eof = true
+
+        let root = create_fake_fs();
+
+        let request = create_nfs40_server(Some(root)).await;
+        let fh = request.file_manager().get_root_filehandle().await;
+
+        let putfh_args = PutFh4args {
+            object: fh.unwrap().id,
+        };
+        let putfh_request = putfh_args.execute(request).await;
+
+        let readdir_args = Readdir4args {
+            cookie: 0,
+            cookieverf: [0u8; 8],
+            dircount: 262122,
+            maxcount: 1048488,
+            attr_request: vec![
+                FileAttr::Type,
+                FileAttr::Change,
+                FileAttr::Size,
+                FileAttr::Fsid,
+                FileAttr::RdattrError,
+                FileAttr::Filehandle,
+                FileAttr::Fileid,
+                FileAttr::Mode,
+                FileAttr::Numlinks,
+                FileAttr::Owner,
+                FileAttr::OwnerGroup,
+                FileAttr::Rawdev,
+                FileAttr::SpaceUsed,
+                FileAttr::TimeAccess,
+                FileAttr::TimeMetadata,
+                FileAttr::TimeModify,
+                FileAttr::MountedOnFileid,
+            ],
+        };
+
+        let readdir_response = readdir_args.execute(putfh_request.request).await;
+        assert_eq!(readdir_response.status, NfsStat4::Nfs4Ok);
+        let result = readdir_response.result.unwrap();
+        match result {
+            NfsResOp4::Opreaddir(ReadDir4res::Resok4(res)) => {
+                assert_eq!(res.cookieverf.len(), 8);
+                let entries = res.reply.entries.unwrap();
+                assert_eq!(entries.cookie, 1);
+                if entries.name == "file1.txt" {
+                    assert_eq!(entries.attrs.attrmask.len(), 14);
+                    assert_eq!(entries.attrs.attr_vals.len(), 14);
+                    assert_eq!(
+                        entries.attrs.attr_vals[0],
+                        FileAttrValue::Type(NfsFtype4::Nf4reg)
+                    );
+                } else if entries.name == "dir1" {
+                    assert_eq!(entries.attrs.attrmask.len(), 14);
+                    assert_eq!(entries.attrs.attr_vals.len(), 14);
+                    assert_eq!(
+                        entries.attrs.attr_vals[0],
+                        FileAttrValue::Type(NfsFtype4::Nf4dir)
+                    );
+                } else {
+                    panic!("Unexpected entry");
+                }
+                let next = entries.nextentry.unwrap();
+                assert_eq!(next.cookie, 2);
+                if next.name == "file1.txt" {
+                    assert_eq!(next.attrs.attrmask.len(), 14);
+                    assert_eq!(next.attrs.attr_vals.len(), 14);
+                    assert_eq!(
+                        next.attrs.attr_vals[0],
+                        FileAttrValue::Type(NfsFtype4::Nf4reg)
+                    );
+                } else if next.name == "dir1" {
+                    assert_eq!(next.attrs.attrmask.len(), 14);
+                    assert_eq!(next.attrs.attr_vals.len(), 14);
+                    assert_eq!(
+                        next.attrs.attr_vals[0],
+                        FileAttrValue::Type(NfsFtype4::Nf4dir)
+                    );
+                } else {
+                    panic!("Unexpected entry");
+                }
+                assert_eq!(next.nextentry, None);
+                assert!(res.reply.eof);
+            }
+            _ => panic!("Expected Resok4"),
+        }
+    }
+}

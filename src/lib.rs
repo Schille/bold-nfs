@@ -14,8 +14,11 @@ pub mod bold {
 mod test_utils {
     use vfs::{MemoryFS, VfsPath};
 
-    use crate::server::{
-        clientmanager::ClientManagerHandle, filemanager::FileManagerHandle, request::NfsRequest,
+    use crate::{
+        proto::nfs4_proto::{CbClient4, ClientAddr4, NfsClientId4, SetClientId4args},
+        server::{
+            clientmanager::ClientManagerHandle, filemanager::FileManagerHandle, request::NfsRequest,
+        },
     };
 
     fn create_dummyfs() -> VfsPath {
@@ -24,8 +27,27 @@ mod test_utils {
         root
     }
 
-    pub async fn create_nfs40_server() -> NfsRequest {
-        let root = create_dummyfs();
+    pub fn create_client(verifier: [u8; 8], id: String) -> SetClientId4args {
+        SetClientId4args {
+            client: NfsClientId4 { verifier, id },
+            callback: CbClient4 {
+                cb_program: 0,
+                cb_location: ClientAddr4 {
+                    rnetid: "tcp".to_string(),
+                    raddr: "127.0.0.1.149.18".to_string(),
+                },
+            },
+            callback_ident: 1,
+        }
+    }
+
+    pub async fn create_nfs40_server(root: Option<VfsPath>) -> NfsRequest {
+        let root = if root.is_none() {
+            create_dummyfs()
+        } else {
+            root.unwrap()
+        };
+
         let client_mananger_handle = ClientManagerHandle::new();
         let file_mananger_handle = FileManagerHandle::new(root, None);
 

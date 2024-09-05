@@ -29,7 +29,7 @@ impl NFS40Server {
     async fn put_root_filehandle(&self, mut request: NfsRequest) -> NfsOpResponse {
         match request.file_manager().get_root_filehandle().await {
             Ok(filehandle) => {
-                request.set_filehandle_id(filehandle.id.clone());
+                request.set_filehandle_id(filehandle.id);
                 NfsOpResponse {
                     request,
                     result: Some(NfsResOp4::Opputrootfh(PutRootFh4res {

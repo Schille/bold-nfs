@@ -40,3 +40,34 @@ impl NfsOperation for PutFh4args {
         }
     }
 }
+
+#[cfg(test)]
+mod integration_tests {
+    use crate::{
+        server::{
+            nfs40::{NfsResOp4, NfsStat4, PutFh4args, PutFh4res},
+            operation::NfsOperation,
+        },
+        test_utils::create_nfs40_server,
+    };
+    use tracing_test::traced_test;
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_put_filehandle() {
+        let request = create_nfs40_server(None).await;
+        let fh = request.file_manager().get_root_filehandle().await;
+
+        let args = PutFh4args {
+            object: fh.unwrap().id,
+        };
+        let response = args.execute(request).await;
+        assert_eq!(response.status, NfsStat4::Nfs4Ok);
+        assert_eq!(
+            response.result,
+            Some(NfsResOp4::Opputfh(PutFh4res {
+                status: NfsStat4::Nfs4Ok,
+            }))
+        );
+    }
+}
