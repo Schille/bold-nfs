@@ -120,7 +120,9 @@ impl NfsOperation for Readdir4args {
 
             let entry = Entry4 {
                 name: fh.file.filename(),
-                cookie: cookie as u64,
+                // https://datatracker.ietf.org/doc/html/rfc7530#section-16.24.4
+                // To enable some client environments, the cookie values of 0, 1, and 2 are to be considered reserved.
+                cookie: (cookie + 2) as u64,
                 attrs: Fattr4 {
                     attrmask: answer_attrs,
                     attr_vals: attrs,
@@ -163,7 +165,6 @@ impl NfsOperation for Readdir4args {
 mod integration_tests {
 
     use tracing_test::traced_test;
-    use vfs::{MemoryFS, VfsPath};
 
     use crate::{
         server::{
@@ -173,37 +174,8 @@ mod integration_tests {
             },
             operation::NfsOperation,
         },
-        test_utils::create_nfs40_server,
+        test_utils::{create_fake_fs, create_nfs40_server},
     };
-
-    fn create_fake_fs() -> VfsPath {
-        let root: VfsPath = MemoryFS::new().into();
-        let file1 = root.join("file1.txt").unwrap();
-        file1
-            .create_file()
-            .unwrap()
-            .write_all(b"Hello, World!")
-            .unwrap();
-
-        let file1 = root.join("file1.txt").unwrap();
-        file1
-            .create_file()
-            .unwrap()
-            .write_all(b"Hello, loooooooong world!")
-            .unwrap();
-
-        let dir1 = root.join("dir1").unwrap();
-        dir1.create_dir_all().unwrap();
-
-        let file2 = dir1.join("file2.txt").unwrap();
-        file2
-            .create_file()
-            .unwrap()
-            .write_all(b"Hello, file2!")
-            .unwrap();
-
-        root
-    }
 
     #[tokio::test]
     #[traced_test]
@@ -258,9 +230,7 @@ mod integration_tests {
 
         // a more filled directory, still eof = true
 
-        let root = create_fake_fs();
-
-        let request = create_nfs40_server(Some(root)).await;
+        let request = create_nfs40_server(Some(create_fake_fs())).await;
         let fh = request.file_manager().get_root_filehandle().await;
 
         let putfh_args = PutFh4args {
@@ -301,7 +271,7 @@ mod integration_tests {
             NfsResOp4::Opreaddir(ReadDir4res::Resok4(res)) => {
                 assert_eq!(res.cookieverf.len(), 8);
                 let entries = res.reply.entries.unwrap();
-                assert_eq!(entries.cookie, 1);
+                assert_eq!(entries.cookie, 3);
                 if entries.name == "file1.txt" {
                     assert_eq!(entries.attrs.attrmask.len(), 14);
                     assert_eq!(entries.attrs.attr_vals.len(), 14);
@@ -320,7 +290,7 @@ mod integration_tests {
                     panic!("Unexpected entry");
                 }
                 let next = entries.nextentry.unwrap();
-                assert_eq!(next.cookie, 2);
+                assert_eq!(next.cookie, 4);
                 if next.name == "file1.txt" {
                     assert_eq!(next.attrs.attrmask.len(), 14);
                     assert_eq!(next.attrs.attr_vals.len(), 14);

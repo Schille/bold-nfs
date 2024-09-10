@@ -10,10 +10,7 @@ use async_trait::async_trait;
 use request::NfsRequest;
 use tracing::debug;
 
-use crate::{
-    bold::{MsgType, RpcCallMsg},
-    proto::rpc_proto::{CallBody, ReplyBody, RpcReplyMsg},
-};
+use crate::proto::rpc_proto::{CallBody, MsgType, ReplyBody, RpcCallMsg, RpcReplyMsg};
 
 #[async_trait]
 pub trait NfsProtoImpl: Sync {

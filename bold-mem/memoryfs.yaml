@@ -1,0 +1,28 @@
+name: 
+contents:
+  - !Dir
+    name: home
+    contents:
+      - !Dir
+        name: user
+        contents:
+          - !File
+            name: file1
+            contents: |
+              This is the content of file1
+          - !File
+            name: file2
+            contents: |
+              This is the content of file2
+  - !Dir
+    name: etc
+    contents:
+      - !File
+        name: passwd
+        contents: |
+          root:x:0:0:root:/root:/bin/bash
+          user:x:1000:1000:user:/home/user:/bin/bash
+  - !File
+    name: init
+    contents: |
+      Only text files supported at the moment

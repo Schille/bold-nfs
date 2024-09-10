@@ -12,23 +12,23 @@ use tracing::{instrument, trace};
 use self::rpc_proto::{RpcCallMsg, RpcReplyMsg};
 
 #[derive(Debug)]
-pub struct NFSProtoCodec {}
+pub struct XDRProtoCodec {}
 
 const MAX: usize = 8 * 1024 * 1024;
 
-impl Default for NFSProtoCodec {
+impl Default for XDRProtoCodec {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl NFSProtoCodec {
-    pub fn new() -> NFSProtoCodec {
-        NFSProtoCodec {}
+impl XDRProtoCodec {
+    pub fn new() -> XDRProtoCodec {
+        XDRProtoCodec {}
     }
 }
 
-impl Decoder for NFSProtoCodec {
+impl Decoder for XDRProtoCodec {
     type Item = RpcCallMsg;
     type Error = std::io::Error;
 
@@ -81,7 +81,7 @@ impl Decoder for NFSProtoCodec {
     }
 }
 
-impl Encoder<Box<RpcReplyMsg>> for NFSProtoCodec {
+impl Encoder<Box<RpcReplyMsg>> for XDRProtoCodec {
     type Error = std::io::Error;
 
     fn encode(&mut self, message: Box<RpcReplyMsg>, dst: &mut BytesMut) -> Result<(), Self::Error> {
