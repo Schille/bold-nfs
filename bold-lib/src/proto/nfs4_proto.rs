@@ -1,6 +1,6 @@
 extern crate serde_bytes;
 extern crate serde_xdr;
-use super::utils::{read_attr_values, read_attrs, write_argarray, write_attr_values, write_attrs};
+use super::utils::{read_attrs, write_argarray, write_attr_values, write_attrs};
 
 use num_derive::{FromPrimitive, ToPrimitive};
 
@@ -477,14 +477,11 @@ pub const FATTR4_MOUNTED_ON_FILEID: u32 = 55;
 /*
  * File attribute container
  */
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct Fattr4 {
-    #[serde(deserialize_with = "read_attrs", serialize_with = "write_attrs")]
+    #[serde(serialize_with = "write_attrs")]
     pub attrmask: Vec<FileAttr>,
-    #[serde(
-        deserialize_with = "read_attr_values",
-        serialize_with = "write_attr_values"
-    )]
+    #[serde(serialize_with = "write_attr_values")]
     pub attr_vals: Vec<FileAttrValue>,
 }
 
@@ -976,12 +973,12 @@ pub enum CreateMode4 {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[repr(u32)]
 pub enum CreateHow4 {
-    UNCHECKED4 = 0,
+    UNCHECKED4(Fattr4) = 0,
     // GUARDED4
-    Createattrs(Fattr4) = 1,
+    GUARDED4(Fattr4) = 1,
     // EXCLUSIVE4
     #[serde(with = "serde_xdr::opaque_data::fixed_length")]
-    Createverf([u8; 8]) = 2,
+    EXCLUSIVE4([u8; 8]) = 2,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1055,7 +1052,7 @@ pub enum OpenClaim4 {
     */
 
     /* CURRENT_FH: directory */
-    File(Component4) = 0,
+    ClaimNull(Component4) = 0,
     /*
     * Right to the file established by an
     * open previous to server reboot.  File
@@ -1064,7 +1061,7 @@ pub enum OpenClaim4 {
     */
 
     /* CURRENT_FH: file being reclaimed */
-    DelegateType(OpenDelegationType4) = 1,
+    ClaimPrevious(OpenDelegationType4) = 1,
 
     /*
     * Right to file based on a delegation
@@ -1073,7 +1070,7 @@ pub enum OpenClaim4 {
 
     */
     /* CURRENT_FH: directory */
-    DelegateCurInfo(OpenClaimDelegateCur4) = 2,
+    ClaimDelegateCur(OpenClaimDelegateCur4) = 2,
 
     /*
      * Right to file based on a delegation
@@ -1081,13 +1078,13 @@ pub enum OpenClaim4 {
      * of the client.  File is specified by name.
      */
     /* CURRENT_FH: directory */
-    FileDelegatePrev(Component4) = 3,
+    ClaimDelegatePrev(Component4) = 3,
 }
 
 /*
  * OPEN: Open a file, potentially receiving an open delegation
  */
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct Open4args {
     pub seqid: Seqid4,
     pub share_access: u32,

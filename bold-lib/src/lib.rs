@@ -5,6 +5,7 @@ pub mod server;
 
 use crate::proto::XDRProtoCodec;
 use futures::SinkExt;
+use proto::rpc_proto::{AcceptBody, AcceptedReply, OpaqueAuth, ReplyBody};
 use tokio::net::TcpListener;
 use tokio_stream::StreamExt;
 use tokio_util::codec::Framed;
@@ -54,7 +55,8 @@ impl NFSServer {
                         Ok((stream, addr)) => {
                             let _ = stream.set_nodelay(true);
                             info!(%addr, "Client connected");
-                            let _span = span!(Level::TRACE, "client");
+                            let span = span!(Level::TRACE, "client", %addr);
+                            let _enter = span.enter();
                             // Reading NFS RPC messages over record marking codec
                             let mut nfs_transport = Framed::new(stream, XDRProtoCodec::new());
                             // clone NFS server to move into the pipeline and actor connects with shared state
@@ -86,7 +88,24 @@ impl NFSServer {
                                     }
                                     Some(Err(e)) => {
                                         error!("couldn't get message: {:?}", e);
-                                        break;
+                                        let resp = Box::new(proto::rpc_proto::RpcReplyMsg {
+                                            xid: 0,
+                                            body: proto::rpc_proto::MsgType::Reply(
+                                                ReplyBody::MsgAccepted(AcceptedReply {
+                                                    verf: OpaqueAuth::AuthNull(Vec::<u8>::new()),
+                                                    reply_data: AcceptBody::GarbageArgs,
+                                                }),
+                                            ),
+                                        });
+                                        match nfs_transport.send(resp).await {
+                                            Ok(_) => {
+                                                trace!("response sent");
+                                            }
+                                            Err(e) => {
+                                                error!("couldn't send response: {:?}", e);
+                                                break;
+                                            }
+                                        }
                                     }
                                     None => {
                                         // client closed connection

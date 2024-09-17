@@ -70,6 +70,14 @@ impl NFS40Server {
             }
         }
     }
+
+    fn operation_not_supported(&self, request: NfsRequest) -> NfsOpResponse {
+        NfsOpResponse {
+            request,
+            result: None,
+            status: NfsStat4::Nfs4errNotsupp,
+        }
+    }
 }
 
 #[async_trait]
@@ -123,37 +131,37 @@ impl NfsProtoImpl for NFS40Server {
                         NfsArgOp::Oprenew(args) => args.execute(request).await,
                         NfsArgOp::OpsetclientidConfirm(args) => args.execute(request).await,
 
-                        NfsArgOp::Opcommit(_) => todo!(),
-                        NfsArgOp::Opcreate(_) => todo!(),
-                        NfsArgOp::Opdelegpurge(_) => todo!(),
-                        NfsArgOp::Opdelegreturn(_) => todo!(),
+                        NfsArgOp::Opcommit(_) => self.operation_not_supported(request),
+                        NfsArgOp::Opcreate(_) => self.operation_not_supported(request),
+                        NfsArgOp::Opdelegpurge(_) => self.operation_not_supported(request),
+                        NfsArgOp::Opdelegreturn(_) => self.operation_not_supported(request),
 
-                        NfsArgOp::Oplink(_) => todo!(),
-                        NfsArgOp::Oplock(_) => todo!(),
-                        NfsArgOp::Oplockt(_) => todo!(),
-                        NfsArgOp::Oplocku(_) => todo!(),
+                        NfsArgOp::Oplink(_) => self.operation_not_supported(request),
+                        NfsArgOp::Oplock(_) => self.operation_not_supported(request),
+                        NfsArgOp::Oplockt(_) => self.operation_not_supported(request),
+                        NfsArgOp::Oplocku(_) => self.operation_not_supported(request),
 
-                        NfsArgOp::Oplookupp(_) => todo!(),
-                        NfsArgOp::Opnverify(_) => todo!(),
+                        NfsArgOp::Oplookupp(_) => self.operation_not_supported(request),
+                        NfsArgOp::Opnverify(_) => self.operation_not_supported(request),
 
-                        NfsArgOp::Opopenattr(_) => todo!(),
+                        NfsArgOp::Opopenattr(_) => self.operation_not_supported(request),
 
-                        NfsArgOp::OpopenDowngrade(_) => todo!(),
+                        NfsArgOp::OpopenDowngrade(_) => self.operation_not_supported(request),
 
-                        NfsArgOp::Opputpubfh(_) => todo!(),
+                        NfsArgOp::Opputpubfh(_) => self.operation_not_supported(request),
 
-                        NfsArgOp::Opreadlink(_) => todo!(),
-                        NfsArgOp::Opremove(_) => todo!(),
-                        NfsArgOp::Oprename(_) => todo!(),
+                        NfsArgOp::Opreadlink(_) => self.operation_not_supported(request),
+                        NfsArgOp::Opremove(_) => self.operation_not_supported(request),
+                        NfsArgOp::Oprename(_) => self.operation_not_supported(request),
 
-                        NfsArgOp::Oprestorefh(_) => todo!(),
-                        NfsArgOp::Opsavefh(_) => todo!(),
-                        NfsArgOp::OpSecinfo(_) => todo!(),
-                        NfsArgOp::Opsetattr(_) => todo!(),
+                        NfsArgOp::Oprestorefh(_) => self.operation_not_supported(request),
+                        NfsArgOp::Opsavefh(_) => self.operation_not_supported(request),
+                        NfsArgOp::OpSecinfo(_) => self.operation_not_supported(request),
+                        NfsArgOp::Opsetattr(_) => self.operation_not_supported(request),
 
-                        NfsArgOp::Opverify(_) => todo!(),
-                        NfsArgOp::Opwrite(_) => todo!(),
-                        NfsArgOp::OpreleaseLockOwner(_) => todo!(),
+                        NfsArgOp::Opverify(_) => self.operation_not_supported(request),
+                        NfsArgOp::Opwrite(_) => self.operation_not_supported(request),
+                        NfsArgOp::OpreleaseLockOwner(_) => self.operation_not_supported(request),
                     };
                     // match the result of the operation, pass on success, return on error
                     let res = response.result;

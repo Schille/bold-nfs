@@ -1,11 +1,19 @@
+use std::fmt;
+
 use num_traits::{FromPrimitive, ToPrimitive};
 use serde::{
+    de::{self, SeqAccess, Visitor},
     ser::{SerializeSeq, SerializeStruct},
-    Serialize, Serializer,
+    Deserialize, Serialize, Serializer,
 };
 use tracing::debug;
 
-use super::nfs4_proto::{FileAttr, FileAttrValue, Getattr4resok, NfsResOp4, NfsStat4};
+use crate::proto::nfs4_proto::Compound4args;
+
+use super::{
+    nfs4_proto::{Fattr4, FileAttr, FileAttrValue, Getattr4resok, NfsResOp4, NfsStat4},
+    rpc_proto::CallBody,
+};
 
 pub fn write_argarray<T, S>(v: &T, serializer: S) -> Result<S::Ok, S::Error>
 where
@@ -49,7 +57,7 @@ where
 {
     let attrs_raw = <Vec<u32> as serde::Deserialize>::deserialize(deserializer).unwrap();
 
-    let mut attrs = Vec::new();
+    let mut attrs: Vec<FileAttr> = Vec::new();
     for (idx, segment) in attrs_raw.iter().enumerate() {
         for n in 0..32 {
             let bit = (segment >> n) & 1;
@@ -83,9 +91,10 @@ pub fn read_attr_values<'de, D>(deserializer: D) -> Result<Vec<FileAttrValue>, D
 where
     D: serde::Deserializer<'de>,
 {
-    let _attrs_raw = <Vec<u32> as serde::Deserialize>::deserialize(deserializer).unwrap();
-    let attrs = Vec::new();
+    let _attrs_raw = <u32 as serde::Deserialize>::deserialize(deserializer).unwrap();
+    let mut attrs = Vec::new();
     // TODO
+    attrs.push(FileAttrValue::Mode(_attrs_raw));
     Ok(attrs)
 }
 
@@ -212,5 +221,167 @@ impl Serialize for Getattr4resok {
             seq.serialize_field("obj_attributes", &self.obj_attributes.as_ref().unwrap())?;
             seq.end()
         }
+    }
+}
+
+impl<'de> Deserialize<'de> for CallBody {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct CallBodyVisitor;
+
+        impl<'de> Visitor<'de> for CallBodyVisitor {
+            type Value = CallBody;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct CallBody")
+            }
+
+            fn visit_seq<V>(self, mut seq: V) -> Result<CallBody, V::Error>
+            where
+                V: SeqAccess<'de>,
+            {
+                let rpcvers = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let prog = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                let vers = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                let proc = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                let cred = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                let verf = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                // if proc == 0, then there are no args
+                if proc == 0 {
+                    // Procedure 0: NULL - No Operation
+                    Ok(CallBody {
+                        rpcvers,
+                        prog,
+                        vers,
+                        proc,
+                        cred,
+                        verf,
+                        args: None,
+                    })
+                } else {
+                    // Procedure 1: COMPOUND - Compound Operations
+                    let args: Compound4args = seq
+                        .next_element()?
+                        .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                    Ok(CallBody {
+                        rpcvers,
+                        prog,
+                        vers,
+                        proc,
+                        cred,
+                        verf,
+                        args: Some(args),
+                    })
+                }
+            }
+        }
+
+        const FIELDS: &[&str] = &["rpcvers", "prog", "vers", "proc", "cred", "verf", "args"];
+        deserializer.deserialize_struct("CallBody", FIELDS, CallBodyVisitor)
+    }
+}
+
+// deserialization helper for Fattr4
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct FattrRaw {
+    attrmask: Vec<u32>,
+    #[serde(with = "serde_bytes_ng")]
+    attr_vals: Vec<u8>,
+}
+impl FattrRaw {
+    fn to_fileattrs(&self) -> Vec<FileAttr> {
+        let mut attrmask: Vec<FileAttr> = Vec::new();
+        for (idx, segment) in self.attrmask.iter().enumerate() {
+            for n in 0..32 {
+                let bit = (segment >> n) & 1;
+                if bit == 1 {
+                    let attr: Option<FileAttr> = FromPrimitive::from_u32((idx * 32 + n) as u32);
+                    if let Some(attr) = attr {
+                        attrmask.push(attr);
+                    }
+                }
+            }
+        }
+        attrmask
+    }
+
+    fn to_fileattrvals(&self, fileattrs: &[FileAttr]) -> Vec<FileAttrValue> {
+        let mut attr_vals: Vec<FileAttrValue> = Vec::new();
+        let mut offset = 0;
+        for (idx, attr) in fileattrs.iter().enumerate() {
+            match attr {
+                FileAttr::Type => {
+                    todo!();
+                }
+                FileAttr::Change => {
+                    todo!();
+                }
+                FileAttr::Size => {
+                    todo!();
+                }
+                FileAttr::TimeAccess => {
+                    todo!();
+                }
+                FileAttr::TimeModify => {
+                    todo!();
+                }
+                FileAttr::TimeMetadata => {
+                    todo!();
+                }
+                FileAttr::MountedOnFileid => {
+                    todo!();
+                }
+                FileAttr::Owner => {
+                    todo!();
+                }
+                FileAttr::OwnerGroup => {
+                    todo!();
+                }
+                FileAttr::SpaceUsed => {
+                    todo!();
+                }
+                FileAttr::Numlinks => {
+                    todo!();
+                }
+                FileAttr::Mode => {
+                    let ele =
+                        u32::from_be_bytes(self.attr_vals[offset..offset + 4].try_into().unwrap());
+                    attr_vals.push(FileAttrValue::Mode(ele));
+                    offset += idx + 4;
+                }
+                _ => todo!(),
+            }
+        }
+        attr_vals
+    }
+}
+
+impl<'de> Deserialize<'de> for Fattr4 {
+    fn deserialize<D>(deserializer: D) -> Result<Fattr4, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let fattr_raw = <FattrRaw as serde::Deserialize>::deserialize(deserializer)?;
+        let attrmask = fattr_raw.to_fileattrs();
+        let attr_vals = fattr_raw.to_fileattrvals(&attrmask);
+
+        Ok(Fattr4 {
+            attrmask,
+            attr_vals,
+        })
     }
 }

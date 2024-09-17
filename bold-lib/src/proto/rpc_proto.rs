@@ -30,7 +30,7 @@ pub enum OpaqueAuth {
     AuthDes = 3,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct CallBody {
     pub rpcvers: u32,
     pub prog: u32,
@@ -38,23 +38,7 @@ pub struct CallBody {
     pub proc: u32,
     pub cred: OpaqueAuth,
     pub verf: OpaqueAuth,
-
-    #[serde(deserialize_with = "read_compound_args")]
     pub args: Option<Compound4args>,
-}
-
-fn read_compound_args<'de, D>(deserializer: D) -> Result<Option<Compound4args>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let args = <Compound4args as serde::Deserialize>::deserialize(deserializer);
-    match args {
-        Ok(args) => Ok(Some(args)),
-        Err(_e) => {
-            println!("Error deserializing compound args: {:?}", _e);
-            Ok(None)
-        }
-    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
