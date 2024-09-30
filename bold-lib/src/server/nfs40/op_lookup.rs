@@ -123,6 +123,6 @@ mod integration_tests {
             objname: "doesnotexist".to_string(),
         };
         let lookup2_response = args.execute(putfh1_request.request).await;
-        assert_eq!(lookup2_response.status, NfsStat4::Nfs4errStale);
+        assert_eq!(lookup2_response.status, NfsStat4::Nfs4errNoent);
     }
 }

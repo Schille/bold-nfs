@@ -1164,7 +1164,6 @@ pub struct Open4resok {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-
 pub enum Open4res {
     /* CURRENT_FH: opened file */
     Resok4(Open4resok),
@@ -1318,18 +1317,13 @@ pub enum ReadLink4res {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Remove4args {
     /* CURRENT_FH: directory */
-    target: Component4,
+    pub target: Component4,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct Remove4resok {
-    cinfo: ChangeInfo4,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-
-pub enum Remove4res {
-    Resok4(Remove4resok),
+pub struct Remove4res {
+    pub status: NfsStat4,
+    pub cinfo: ChangeInfo4,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1415,15 +1409,15 @@ pub enum SecInfo4res {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SetAttr4args {
     /* CURRENT_FH: target object */
-    stateid: Stateid4,
-    obj_attributes: Fattr4,
+    pub stateid: Stateid4,
+    pub obj_attributes: Fattr4,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SetAttr4res {
-    status: NfsStat4,
+    pub status: NfsStat4,
     // #[serde(deserialize_with="read_bitmap", serialize_with="write_bitmap")]
-    attrsset: Bitmap4,
+    pub attrsset: Bitmap4,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1481,10 +1475,11 @@ pub enum StableHow4 {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Write4args {
     /* CURRENT_FH: file */
-    stateid: Stateid4,
-    offset: Offset4,
-    stable: StableHow4,
-    data: Vec<i64>,
+    pub stateid: Stateid4,
+    pub offset: Offset4,
+    pub stable: StableHow4,
+    #[serde(with = "serde_bytes_ng")]
+    pub data: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

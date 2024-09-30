@@ -15,9 +15,11 @@ mod op_openconfirm;
 mod op_putfh;
 mod op_read;
 mod op_readdir;
+mod op_remove;
 mod op_renew;
 mod op_set_clientid;
 mod op_set_clientid_confirm;
+mod op_setattr;
 
 use super::NfsProtoImpl;
 use tracing::error;
@@ -114,7 +116,9 @@ impl NfsProtoImpl for NFS40Server {
                 for arg in &args.argarray {
                     let response = match arg {
                         // these should never be called
-                        NfsArgOp::OpUndef0 | NfsArgOp::OpUndef1 | NfsArgOp::OpUndef2 => todo!(),
+                        NfsArgOp::OpUndef0 | NfsArgOp::OpUndef1 | NfsArgOp::OpUndef2 => {
+                            self.operation_not_supported(request)
+                        }
                         // these are actual operations
                         NfsArgOp::Opgetfh(_) => self.get_current_filehandle(request),
                         NfsArgOp::Opsetclientid(args) => args.execute(request).await,
@@ -130,6 +134,8 @@ impl NfsProtoImpl for NFS40Server {
                         NfsArgOp::Opreaddir(args) => args.execute(request).await,
                         NfsArgOp::Oprenew(args) => args.execute(request).await,
                         NfsArgOp::OpsetclientidConfirm(args) => args.execute(request).await,
+                        NfsArgOp::Opsetattr(args) => args.execute(request).await,
+                        NfsArgOp::Opremove(args) => args.execute(request).await,
 
                         NfsArgOp::Opcommit(_) => self.operation_not_supported(request),
                         NfsArgOp::Opcreate(_) => self.operation_not_supported(request),
@@ -151,13 +157,12 @@ impl NfsProtoImpl for NFS40Server {
                         NfsArgOp::Opputpubfh(_) => self.operation_not_supported(request),
 
                         NfsArgOp::Opreadlink(_) => self.operation_not_supported(request),
-                        NfsArgOp::Opremove(_) => self.operation_not_supported(request),
+
                         NfsArgOp::Oprename(_) => self.operation_not_supported(request),
 
                         NfsArgOp::Oprestorefh(_) => self.operation_not_supported(request),
                         NfsArgOp::Opsavefh(_) => self.operation_not_supported(request),
                         NfsArgOp::OpSecinfo(_) => self.operation_not_supported(request),
-                        NfsArgOp::Opsetattr(_) => self.operation_not_supported(request),
 
                         NfsArgOp::Opverify(_) => self.operation_not_supported(request),
                         NfsArgOp::Opwrite(_) => self.operation_not_supported(request),

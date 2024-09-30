@@ -1,163 +1,20 @@
-use std::{
-    hash::{DefaultHasher, Hash, Hasher},
-    time::{SystemTime, UNIX_EPOCH},
-};
-
 use crate::proto::nfs4_proto::{
-    FileAttr, FileAttrValue, Fsid4, NfsFtype4, NfsLease4, NfsStat4, Nfstime4,
-    ACL4_SUPPORT_ALLOW_ACL, FH4_VOLATILE_ANY, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR,
+    FileAttr, FileAttrValue, NfsLease4, NfsStat4, ACL4_SUPPORT_ALLOW_ACL, FH4_VOLATILE_ANY,
+    MODE4_RGRP, MODE4_ROTH, MODE4_RUSR,
 };
 
-use multi_index_map::MultiIndexMap;
-use tokio::sync::{mpsc, oneshot};
-use tracing::debug;
+mod filehandle;
+pub use filehandle::Filehandle;
+pub use handle::FileManagerHandle;
+mod handle;
+mod locking;
+
+use filehandle::FilehandleDb;
+use handle::FileManagerMessage;
+use locking::{LockingState, LockingStateDb};
+use tokio::sync::mpsc;
+use tracing::{debug, error};
 use vfs::VfsPath;
-
-type FilehandleDb = MultiIndexFilehandleMap;
-
-#[derive(MultiIndexMap, Debug, Clone)]
-#[multi_index_derive(Debug, Clone)]
-pub struct Filehandle {
-    #[multi_index(hashed_unique)]
-    pub id: Vec<u8>,
-    pub file: VfsPath,
-    // path:
-    // the full path of the file including filename
-    #[multi_index(hashed_unique)]
-    pub path: String,
-    // type:
-    // Designates the type of an object in terms of one of a number of
-    // special constants
-    pub attr_type: NfsFtype4,
-    // change:
-    // A value created by the server that the client can use to determine if
-    // file data, directory contents, or attributes of the object have been
-    // modified.  The server MAY return the object's time_metadata attribute
-    // for this attribute's value but only if the file system object cannot
-    // be updated more frequently than the resolution of time_metadata.
-    pub attr_change: u64,
-    // size:
-    // The size of the object in bytes.
-    pub attr_size: u64,
-    // fileid:
-    // A number uniquely identifying the file within the file system.
-    pub attr_fileid: u64,
-    // fsid:
-    // Unique file system identifier for the file system holding this
-    // object.  The fsid attribute has major and minor components, each of
-    // which are of data type uint64_t.
-    pub attr_fsid: Fsid4,
-    // mode:
-    // The NFSv4.0 mode attribute is based on the UNIX mode bits.
-    pub attr_mode: u32,
-    // owner:
-    // The string name of the owner of this object.
-    pub attr_owner: String,
-    // owner_group:
-    // The string name of the group ownership of this object.
-    pub attr_owner_group: String,
-    // space_used:
-    // Number of file system bytes allocated to this object.
-    pub attr_space_used: u64,
-    // time_access:
-    // Represents the time of last access to the object by a READ operation
-    // sent to the server.
-    pub attr_time_access: Nfstime4,
-    // time_metadata:
-    // The time of last metadata modification of the object.
-    pub attr_time_metadata: Nfstime4,
-    // time_modified:
-    // The time of last modification to the object.
-    pub attr_time_modify: Nfstime4,
-}
-
-impl Filehandle {
-    pub fn new(file: VfsPath, id: Vec<u8>, major: u64, minor: u64) -> Self {
-        let init_time = Self::attr_time_access();
-        let mut path = file.as_str().to_string();
-        if path.is_empty() {
-            path = "/".to_string();
-        }
-        Filehandle {
-            id,
-            path,
-            attr_type: Self::attr_type(&file),
-            attr_change: Self::attr_change(&file),
-            attr_size: Self::attr_size(&file),
-            attr_fileid: Self::attr_fileid(&file),
-            attr_fsid: Self::attr_fsid(major, minor),
-            attr_mode: Self::attr_mode(&file),
-            attr_owner: Self::attr_owner(&file),
-            attr_owner_group: Self::attr_owner_group(&file),
-            attr_space_used: Self::attr_space_used(&file),
-            attr_time_access: init_time,
-            attr_time_metadata: init_time,
-            attr_time_modify: init_time,
-            file,
-        }
-    }
-
-    fn attr_type(file: &VfsPath) -> NfsFtype4 {
-        if file.is_dir().unwrap() {
-            return NfsFtype4::Nf4dir;
-        }
-        if file.is_file().unwrap() {
-            return NfsFtype4::Nf4reg;
-        }
-        NfsFtype4::Nf4Undef
-    }
-
-    fn attr_change(file: &VfsPath) -> u64 {
-        let v = file.metadata();
-        if v.is_ok() {
-            if let Some(v) = v.unwrap().modified {
-                return v.duration_since(UNIX_EPOCH).unwrap().as_secs();
-            }
-        }
-        0
-    }
-
-    fn attr_fileid(file: &VfsPath) -> u64 {
-        let mut hasher = DefaultHasher::new();
-        file.as_str().hash(&mut hasher);
-
-        u64::try_from(hasher.finish()).unwrap()
-    }
-
-    fn attr_fsid(major: u64, minor: u64) -> Fsid4 {
-        Fsid4 { major, minor }
-    }
-
-    fn attr_mode(_file: &VfsPath) -> u32 {
-        MODE4_RUSR + MODE4_RGRP + MODE4_ROTH
-    }
-
-    fn attr_owner(_file: &VfsPath) -> String {
-        "1000".to_string()
-    }
-
-    fn attr_owner_group(_file: &VfsPath) -> String {
-        "1000".to_string()
-    }
-
-    fn attr_size(file: &VfsPath) -> u64 {
-        u64::try_from(file.metadata().unwrap().len).unwrap()
-    }
-
-    fn attr_space_used(file: &VfsPath) -> u64 {
-        u64::try_from(file.metadata().unwrap().len).unwrap()
-    }
-
-    fn attr_time_access() -> Nfstime4 {
-        let since_epoch = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap();
-        Nfstime4 {
-            seconds: since_epoch.as_secs() as i64,
-            nseconds: since_epoch.subsec_nanos(),
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct FileManager {
@@ -168,15 +25,15 @@ pub struct FileManager {
     pub unique_handles: bool,
     pub fsid: u64,
     // database for all managed filehandles
-    pub db: FilehandleDb,
+    pub fhdb: FilehandleDb,
+    // this field trackes a sequence number for filehandles
+    pub next_fh_id: u64,
+    // database for all managed locking states
+    pub lockdb: LockingStateDb,
+    // this field trackes a sequence number for stateids
+    pub next_stateid_id: u64,
     pub boot_time: u64,
     pub receiver: mpsc::Receiver<FileManagerMessage>,
-}
-
-pub enum FileManagerMessage {
-    GetRootFilehandle(GetRootFilehandleRequest),
-    GetFilehandle(GetFilehandleRequest),
-    GetFilehandleAttrs(GetFilehandleAttrsRequest),
 }
 
 impl FileManager {
@@ -197,24 +54,30 @@ impl FileManager {
             unique_handles: false,
             boot_time,
             fsid,
-            db: FilehandleDb::default(),
+            next_fh_id: 100,
+            next_stateid_id: 100,
+            fhdb: FilehandleDb::default(),
+            lockdb: LockingStateDb::default(),
         };
         // always have a root filehandle upon start
         fmanager.root_fh();
         fmanager
     }
 
+    // actor main message handler for FileManager
     fn handle_message(&mut self, msg: FileManagerMessage) {
         match msg {
             FileManagerMessage::GetRootFilehandle(req) => {
-                let fh = self.root_fh();
-                req.respond_to.send(fh).unwrap();
+                let fh_wo_locks = self.root_fh();
+                let fh = self.attach_locks(fh_wo_locks);
+                req.respond_to.send(Box::new(fh)).unwrap();
             }
             FileManagerMessage::GetFilehandle(req) => {
                 if req.filehandle.is_some() {
                     let fh = self.get_filehandle_by_id(&req.filehandle.unwrap());
                     match fh {
-                        Some(fh) => {
+                        Some(fh_wo_locks) => {
+                            let fh = self.attach_locks(fh_wo_locks);
                             req.respond_to.send(Some(Box::new(fh))).unwrap();
                         }
                         None => {
@@ -226,14 +89,17 @@ impl FileManager {
                     let path = self.root.join(req.path.unwrap()).unwrap();
                     // check if file exists
                     if path.exists().unwrap() {
-                        let fh = self.get_filehandle(&path);
+                        let fh_wo_locks = self.get_filehandle(&path);
+                        let fh = self.attach_locks(fh_wo_locks);
                         req.respond_to.send(Some(Box::new(fh))).unwrap();
                     } else {
                         debug!("File not found {:?}", path);
                         req.respond_to.send(None).unwrap();
                     }
                 } else {
-                    req.respond_to.send(Some(self.root_fh())).unwrap();
+                    let fh_wo_locks = self.root_fh();
+                    let fh = self.attach_locks(fh_wo_locks);
+                    req.respond_to.send(Some(Box::new(fh))).unwrap();
                 }
             }
             FileManagerMessage::GetFilehandleAttrs(req) => {
@@ -241,10 +107,112 @@ impl FileManager {
                     .send(self.filehandle_attrs(&req.attrs_request, &req.filehandle_id))
                     .unwrap();
             }
+            FileManagerMessage::CreateFile(req) => {
+                let fh = self.create_file(&req.path);
+                if let Some(mut fh) = fh {
+                    let stateid = self.get_new_lockingstate_id();
+                    let lock = LockingState::new_shared_reservation(
+                        fh.id.clone(),
+                        stateid,
+                        req.client_id,
+                        req.owner,
+                        req.share_access,
+                        req.share_deny,
+                    );
+                    // add this new locking state to the db
+                    self.lockdb.insert(lock.clone());
+                    fh.locks = vec![lock];
+                    req.respond_to.send(Some(fh)).unwrap();
+                } else {
+                    req.respond_to.send(None).unwrap();
+                }
+            }
+            FileManagerMessage::LockFile() => todo!(),
+            FileManagerMessage::CloseFile() => todo!(),
+            FileManagerMessage::RemoveFile(req) => {
+                let filehandle = self.get_filehandle_by_path(&req.path.as_str().to_string());
+                let mut parent_path = req.path.parent().as_str().to_string();
+                match filehandle {
+                    Some(filehandle) => {
+                        // TODO check locks
+                        if req.path.is_dir().unwrap() {
+                            let _ = req.path.read_dir();
+                        } else {
+                            let _ = req.path.remove_file();
+                        }
+                        self.fhdb.remove_by_id(&filehandle.id);
+                    }
+                    None => {
+                        if req.path.is_dir().unwrap() {
+                            let _ = req.path.read_dir();
+                        } else {
+                            let _ = req.path.remove_file();
+                        }
+                    }
+                }
+
+                if parent_path.is_empty() {
+                    // this is root
+                    parent_path = "/".to_string();
+                }
+                self.touch_parent_filehandle_by_path(parent_path);
+                req.respond_to.send(()).unwrap()
+            }
         }
     }
 
-    fn get_filehandle_id(&self, file: &VfsPath) -> Vec<u8> {
+    fn create_file(&mut self, request_file: &VfsPath) -> Option<Box<Filehandle>> {
+        let newfile = match request_file.create_file() {
+            Ok(_) => {
+                debug!("File created successfully");
+                request_file
+            }
+            Err(e) => {
+                error!("Error creating file {:?}", e);
+                return None;
+            }
+        };
+
+        // this filehandle is already added to the db
+        let fh = self.get_filehandle(newfile);
+        let mut path = newfile.parent().as_str().to_string();
+        if path.is_empty() {
+            // this is root
+            path = "/".to_string();
+        }
+        self.touch_parent_filehandle_by_path(path);
+
+        Some(Box::new(fh))
+    }
+
+    fn touch_parent_filehandle_by_path(&mut self, path: String) {
+        // make the change visible in the parent filehandle, too
+        let parent_filehandle = self.get_filehandle_by_path(&path);
+        if let Some(mut parent_filehandle) = parent_filehandle {
+            let new_change = Filehandle::attr_change(&parent_filehandle.file);
+            if new_change == parent_filehandle.attr_change {
+                // this is a special case, if we cannot determine change via modified time stamp
+                // for example with MemoryFS
+                parent_filehandle.attr_change += 1;
+            } else {
+                parent_filehandle.attr_change = new_change;
+            }
+            self.fhdb
+                .modify_by_id(&parent_filehandle.id, |filehandle: &mut Filehandle| {
+                    *filehandle = parent_filehandle.clone();
+                });
+        }
+    }
+
+    fn get_new_lockingstate_id(&mut self) -> [u8; 12] {
+        // create a new unique lockingstate id
+        let mut id = vec![0_u8, 0_u8, 0_u8, 0_u8];
+        id.extend(self.next_stateid_id.to_be_bytes().to_vec());
+        self.next_stateid_id += 1;
+        id.try_into().unwrap()
+    }
+
+    fn get_filehandle_id(&mut self, file: &VfsPath) -> Vec<u8> {
         // if there is already a filehandle for this path, return it
         let mut path = file.as_str().to_string();
         if path.is_empty() {
@@ -260,22 +228,20 @@ impl FileManager {
             // root gets a special filehandle that always constructs the same way
             return vec![128_u8];
         }
-        // this implements a "Volatile Filehandle"
         // https://tools.ietf.org/html/rfc7530#section-4.2.3
+        // this implements a "Volatile Filehandle"
         let mut id = vec![128_u8];
         id.extend(self.boot_time.to_be_bytes().to_vec());
-        id.extend(self.db.len().to_be_bytes().to_vec());
+        id.extend(self.next_fh_id.to_be_bytes().to_vec());
         id.extend(vec![1_u8]);
 
-        // TODO this does not work for long, just a dirty temporary solution
-        // let mut id: Vec<u8> = iter::repeat(0).take(128 - p.len()).collect();
-        // id.extend(p.as_bytes().to_vec());
         debug!("created new filehandle id: {:?}", id);
+        self.next_fh_id += 1;
         id
     }
 
     fn get_filehandle_by_id(&mut self, id: &Vec<u8>) -> Option<Filehandle> {
-        let fh = self.db.get_by_id(id);
+        let fh = self.fhdb.get_by_id(id);
         if let Some(fh) = fh {
             if fh.file.exists().unwrap() {
                 debug!("Found filehandle: {:?}", fh);
@@ -283,7 +249,7 @@ impl FileManager {
             } else {
                 // this filehandle is stale, remove it
                 debug!("Removing stale filehandle: {:?}", fh);
-                self.db.remove_by_id(id);
+                self.fhdb.remove_by_id(id);
             }
         }
         None
@@ -291,7 +257,7 @@ impl FileManager {
 
     pub fn get_filehandle_by_path(&self, path: &String) -> Option<Filehandle> {
         debug!("get_filehandle_by_path: {}", path);
-        self.db.get_by_path(path).cloned()
+        self.fhdb.get_by_path(path).cloned()
     }
 
     pub fn get_filehandle(&mut self, file: &VfsPath) -> Filehandle {
@@ -301,14 +267,20 @@ impl FileManager {
             None => {
                 let fh = Filehandle::new(file.clone(), id, self.fsid, self.fsid);
                 debug!("Storing new filehandle: {:?}", fh);
-                self.db.insert(fh.clone());
+                self.fhdb.insert(fh.clone());
                 fh
             }
         }
     }
 
-    pub fn root_fh(&mut self) -> Box<Filehandle> {
-        Box::new(self.get_filehandle(&self.root.clone()))
+    pub fn root_fh(&mut self) -> Filehandle {
+        self.get_filehandle(&self.root.clone())
+    }
+
+    pub fn attach_locks(&self, mut filehandle: Filehandle) -> Filehandle {
+        let locks = self.lockdb.get_by_filehandle_id(&filehandle.id);
+        filehandle.locks = locks.into_iter().cloned().collect();
+        filehandle
     }
 
     pub fn filehandle_attrs(
@@ -430,12 +402,6 @@ impl FileManager {
         }
     }
 
-    // pub fn attr_filehandle(&self) -> &Vec<u8> {
-    //     // filehandle:
-    //     // The filehandle of this object (primarily for READDIR requests).
-    //     &self.current_fh.as_ref().unwrap().id
-    // }
-
     pub fn attr_lease_time(&self) -> NfsLease4 {
         self.lease_time
     }
@@ -490,23 +456,6 @@ impl FileManager {
         FH4_VOLATILE_ANY
     }
 
-    // pub fn attr_change(&self) -> u64 {
-    //     // change:
-    //     // A value created by the server that the client can use to determine if
-    //     // file data, directory contents, or attributes of the object have been
-    //     // modified.  The server MAY return the object's time_metadata attribute
-    //     // for this attribute's value but only if the file system object cannot
-    //     // be updated more frequently than the resolution of time_metadata.
-    //     (self.current_fh.as_ref().unwrap().attr_time_modify.seconds * 1000000000
-    //         + self.current_fh.as_ref().unwrap().attr_time_modify.nseconds as i64) as u64
-    // }
-
-    // pub fn attr_size(&self) -> u64 {
-    //     // size:
-    //     // The size of the object in bytes.
-    //     self.current_fh.as_ref().unwrap().attr_size
-    // }
-
     pub fn attr_link_support(&self) -> bool {
         // link_support:
         // TRUE, if the object's file system supports hard links.
@@ -556,12 +505,6 @@ impl FileManager {
         false
     }
 
-    // pub fn attr_fileid(&self) -> u64 {
-    //     // fileid:
-    //     // A number uniquely identifying the file within the file system.
-    //     self.current_fh.as_ref().unwrap().attr_fileid
-    // }
-
     pub fn attr_mode(&self) -> u32 {
         // mode:
         // The NFSv4.0 mode attribute is based on the UNIX mode bits.
@@ -572,179 +515,6 @@ impl FileManager {
         // numlinks:
         // Number of hard links to this object.
         1
-    }
-
-    // pub fn attr_owner(&self) -> &String {
-    //     // owner:
-    //     // The string name of the owner of this object.
-    //     &self.current_fh.as_ref().unwrap().attr_owner
-    // }
-
-    // pub fn attr_owner_group(&self) -> String {
-    //     // owner_group:
-    //     // The string name of the group ownership of this object.
-    //     self.current_fh.as_ref().unwrap().attr_owner_group.clone()
-    // }
-
-    // pub fn attr_space_used(&self) -> u64 {
-    //     // space_used:
-    //     // Number of file system bytes allocated to this object.
-    //     self.current_fh.as_ref().unwrap().attr_space_used
-    // }
-
-    // pub fn attr_time_access(&self) -> Nfstime4 {
-    //     // time_access:
-    //     // Represents the time of last access to the object by a READ operation
-    //     // sent to the server.
-    //     self.current_fh.as_ref().unwrap().attr_time_access
-    // }
-
-    // pub fn attr_time_metadata(&self) -> Nfstime4 {
-    //     // time_metadata:
-    //     // The time of last metadata modification of the object.
-    //     self.current_fh.as_ref().unwrap().attr_time_metadata
-    // }
-
-    // pub fn attr_time_modify(&self) -> Nfstime4 {
-    //     // time_modified:
-    //     // The time of last modification to the object.
-    //     self.current_fh.as_ref().unwrap().attr_time_modify
-    // }
-
-    // pub fn attr_mounted_on_fileid(&self) -> u64 {
-    //     // mounted_on_fileid:
-    //     // Like fileid, but if the target filehandle is the root of a file
-    //     // system, this attribute represents the fileid of the underlying
-    //     // directory.
-    //     self.current_fh.as_ref().unwrap().attr_fileid
-    // }
-}
-
-pub struct GetRootFilehandleRequest {
-    pub respond_to: oneshot::Sender<Box<Filehandle>>,
-}
-
-pub struct GetFilehandleRequest {
-    pub path: Option<String>,
-    pub filehandle: Option<Vec<u8>>,
-    pub respond_to: oneshot::Sender<Option<Box<Filehandle>>>,
-}
-
-pub struct GetFilehandleAttrsRequest {
-    pub filehandle_id: Vec<u8>,
-    pub attrs_request: Vec<FileAttr>,
-    pub respond_to: oneshot::Sender<Option<Box<(Vec<FileAttr>, Vec<FileAttrValue>)>>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct FileManagerError {
-    pub nfs_error: NfsStat4,
-}
-
-#[derive(Debug, Clone)]
-pub struct FileManagerHandle {
-    sender: mpsc::Sender<FileManagerMessage>,
-}
-
-impl FileManagerHandle {
-    pub fn new(root: VfsPath, fsid: Option<u64>) -> Self {
-        let (sender, receiver) = mpsc::channel(16);
-        let fmanager = FileManager::new(receiver, root, fsid);
-        // start the client manager actor
-        tokio::spawn(run_file_manager(fmanager));
-
-        Self { sender }
-    }
-
-    async fn send_filehandle_request(
-        &self,
-        path: Option<String>,
-        filehandle: Option<Vec<u8>>,
-    ) -> Result<Box<Filehandle>, FileManagerError> {
-        let (tx, rx) = oneshot::channel();
-        let req = GetFilehandleRequest {
-            path: path.clone(),
-            filehandle,
-            respond_to: tx,
-        };
-        self.sender
-            .send(FileManagerMessage::GetFilehandle(req))
-            .await
-            .unwrap();
-        match rx.await {
-            Ok(fh) => {
-                if let Some(fh) = fh {
-                    return Ok(fh);
-                }
-                if let Some(path) = path {
-                    debug!("File not found: {:?}", path);
-                    Err(FileManagerError {
-                        nfs_error: NfsStat4::Nfs4errStale,
-                    })
-                } else {
-                    debug!("Filehandle not found");
-                    // https://datatracker.ietf.org/doc/html/rfc7530#section-4.2.3
-                    // If the server can definitively determine that a
-                    // volatile filehandle refers to an object that has been removed, the
-                    // server should return NFS4ERR_STALE to the client (as is the case for
-                    // persistent filehandles)
-                    Err(FileManagerError {
-                        nfs_error: NfsStat4::Nfs4errStale,
-                    })
-                }
-            }
-            Err(_) => Err(FileManagerError {
-                nfs_error: NfsStat4::Nfs4errServerfault,
-            }),
-        }
-    }
-
-    pub async fn get_root_filehandle(&self) -> Result<Box<Filehandle>, FileManagerError> {
-        self.send_filehandle_request(None, None).await
-    }
-
-    pub async fn get_filehandle_for_id(
-        &self,
-        id: Vec<u8>,
-    ) -> Result<Box<Filehandle>, FileManagerError> {
-        self.send_filehandle_request(None, Some(id)).await
-    }
-
-    pub async fn get_filehandle_for_path(
-        &self,
-        path: String,
-    ) -> Result<Box<Filehandle>, FileManagerError> {
-        self.send_filehandle_request(Some(path), None).await
-    }
-
-    pub async fn get_filehandle_attrs(
-        &self,
-        filehandle_id: Vec<u8>,
-        attrs_request: Vec<FileAttr>,
-    ) -> Result<Box<(Vec<FileAttr>, Vec<FileAttrValue>)>, FileManagerError> {
-        let (tx, rx) = oneshot::channel();
-        let req = GetFilehandleAttrsRequest {
-            filehandle_id,
-            attrs_request,
-            respond_to: tx,
-        };
-        self.sender
-            .send(FileManagerMessage::GetFilehandleAttrs(req))
-            .await
-            .unwrap();
-        match rx.await {
-            Ok(attrs) => {
-                if let Some(attrs) = attrs {
-                    return Ok(attrs);
-                }
-                Err(FileManagerError {
-                    nfs_error: NfsStat4::Nfs4errBadhandle,
-                })
-            }
-            Err(_) => Err(FileManagerError {
-                nfs_error: NfsStat4::Nfs4errServerfault,
-            }),
-        }
     }
 }
 

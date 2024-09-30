@@ -40,7 +40,7 @@ impl Open4args {
                 return NfsOpResponse {
                     request,
                     result: None,
-                    status: NfsStat4::Nfs4errServerfault,
+                    status: e.nfs_error,
                 };
             }
         };
@@ -88,37 +88,20 @@ impl Open4args {
 
         debug!("open_for_writing {:?}", fh_path);
 
-        match how {
-            CreateHow4::UNCHECKED4(_fattr) => {
-                let newfile_op = filehandle.file.join(file);
-                let newfile = match newfile_op {
-                    Ok(newfile) => match newfile.create_file() {
-                        Ok(_) => {
-                            debug!("File created successfully");
-                            newfile
-                        }
-                        Err(e) => {
-                            error!("Err {:?}", e);
-                            return NfsOpResponse {
-                                request,
-                                result: None,
-                                status: NfsStat4::Nfs4errServerfault,
-                            };
-                        }
-                    },
-                    Err(e) => {
-                        error!("Err {:?}", e);
-                        return NfsOpResponse {
-                            request,
-                            result: None,
-                            status: NfsStat4::Nfs4errServerfault,
-                        };
-                    }
-                };
+        let newfile_op = filehandle.file.join(file);
 
-                let filehandle = match request
+        let filehandle = match how {
+            CreateHow4::UNCHECKED4(_fattr) => {
+                match request
                     .file_manager()
-                    .get_filehandle_for_path(newfile.as_str().to_string())
+                    .create_file(
+                        newfile_op.unwrap(),
+                        self.owner.clientid,
+                        self.owner.owner.clone(),
+                        self.share_access,
+                        self.share_deny,
+                        None,
+                    )
                     .await
                 {
                     Ok(filehandle) => filehandle,
@@ -130,39 +113,65 @@ impl Open4args {
                             status: NfsStat4::Nfs4errServerfault,
                         };
                     }
-                };
-
-                request.set_filehandle_id(filehandle.id);
-
-                NfsOpResponse {
-                    request,
-                    result: Some(NfsResOp4::Opopen(Open4res::Resok4(Open4resok {
-                        stateid: Stateid4 {
-                            seqid: 0,
-                            other: [0; 12],
-                        },
-                        cinfo: ChangeInfo4 {
-                            atomic: false,
-                            before: 0,
-                            after: 0,
-                        },
-                        // OPEN4_RESULT_CONFIRM indicates that the client MUST execute an
-                        // OPEN_CONFIRM operation before using the open file.
-                        rflags: OPEN4_RESULT_CONFIRM,
-                        attrset: Vec::new(),
-                        delegation: OpenDelegation4::None,
-                    }))),
-                    status: NfsStat4::Nfs4Ok,
+                }
+            }
+            CreateHow4::EXCLUSIVE4(verifier) => {
+                match request
+                    .file_manager()
+                    .create_file(
+                        newfile_op.unwrap(),
+                        self.owner.clientid,
+                        self.owner.owner.clone(),
+                        self.share_access,
+                        self.share_deny,
+                        Some(*verifier),
+                    )
+                    .await
+                {
+                    Ok(filehandle) => filehandle,
+                    Err(e) => {
+                        error!("Err {:?}", e);
+                        return NfsOpResponse {
+                            request,
+                            result: None,
+                            status: NfsStat4::Nfs4errServerfault,
+                        };
+                    }
                 }
             }
             _ => {
                 error!("Unsupported CreateHow4 {:?}", how);
-                NfsOpResponse {
+                return NfsOpResponse {
                     request,
                     result: None,
                     status: NfsStat4::Nfs4errNotsupp,
-                }
+                };
             }
+        };
+
+        request.set_filehandle_id(filehandle.id);
+        // we expect this filehandle to have one lock (for the shared reservation)
+        let lock = &filehandle.locks[0];
+
+        NfsOpResponse {
+            request,
+            result: Some(NfsResOp4::Opopen(Open4res::Resok4(Open4resok {
+                stateid: Stateid4 {
+                    seqid: lock.seqid,
+                    other: lock.stateid,
+                },
+                cinfo: ChangeInfo4 {
+                    atomic: false,
+                    before: 0,
+                    after: 0,
+                },
+                // OPEN4_RESULT_CONFIRM indicates that the client MUST execute an
+                // OPEN_CONFIRM operation before using the open file.
+                rflags: OPEN4_RESULT_CONFIRM,
+                attrset: Vec::new(),
+                delegation: OpenDelegation4::None,
+            }))),
+            status: NfsStat4::Nfs4Ok,
         }
     }
 }

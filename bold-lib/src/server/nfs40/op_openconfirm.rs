@@ -12,13 +12,16 @@ impl NfsOperation for OpenConfirm4args {
             "Operation 20: OPEN_CONFIRM - Confirm Open {:?}, with request {:?}",
             self, request
         );
+        // we expect filehandle to have one lock (for the shared reservation)
+        let lock = &request.current_filehandle().await.unwrap().locks[0];
+        // TODO check if the stateid is correct
         NfsOpResponse {
             request,
             result: Some(NfsResOp4::OpopenConfirm(OpenConfirm4res::Resok4(
                 OpenConfirm4resok {
                     open_stateid: Stateid4 {
-                        seqid: 0,
-                        other: [0; 12],
+                        seqid: lock.seqid,
+                        other: lock.stateid,
                     },
                 },
             ))),

@@ -39,7 +39,9 @@ impl NfsOperation for Readdir4args {
             let name = entry.filename();
             fnames.push(name.clone());
             // if the cookie value is progressed, we add only subsequent filehandles
-            if i >= self.cookie as usize {
+            // https://datatracker.ietf.org/doc/html/rfc7530#section-16.24.4
+            // To enable some client environments, the cookie values of 0, 1, and 2 are to be considered reserved.
+            if (i + 2) >= self.cookie as usize {
                 // this is a poor man's estimation of the XRD outputs bytes, must be improved
                 // we need to know the definitive size of the output of the XDR message here, but how?
                 dircount_actual = dircount_actual + 8 + name.len() + 5;
@@ -59,7 +61,9 @@ impl NfsOperation for Readdir4args {
                             };
                         }
                         Ok(filehandle) => {
-                            filehandles.push((i + 1, filehandle));
+                            // https://datatracker.ietf.org/doc/html/rfc7530#section-16.24.4
+                            // To enable some client environments, the cookie values of 0, 1, and 2 are to be considered reserved.
+                            filehandles.push((i + 3, filehandle));
                         }
                     }
                 }
@@ -120,9 +124,7 @@ impl NfsOperation for Readdir4args {
 
             let entry = Entry4 {
                 name: fh.file.filename(),
-                // https://datatracker.ietf.org/doc/html/rfc7530#section-16.24.4
-                // To enable some client environments, the cookie values of 0, 1, and 2 are to be considered reserved.
-                cookie: (cookie + 2) as u64,
+                cookie: cookie as u64,
                 attrs: Fattr4 {
                     attrmask: answer_attrs,
                     attr_vals: attrs,
