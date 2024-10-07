@@ -25,6 +25,8 @@ pub struct NFSServer {
     root: VfsPath,
     /// NFSv4.0 service
     service_0: Option<server::nfs40::NFS40Server>,
+    /// The time the server was started
+    boot_time: u64,
     // ToDo: add more minor version support
 }
 
@@ -70,6 +72,7 @@ impl NFSServer {
                                             addr.to_string(),
                                             client_manager_handle.clone(),
                                             file_manager_handle.clone(),
+                                            self.boot_time,
                                         );
                                         // ToDo implement and select correct version of NFS protocol, this services all with minor version 0
                                         let nfs_protocol = self.service_0.as_ref().unwrap();
@@ -143,10 +146,13 @@ impl ServerBuilder {
     }
 
     pub fn build(&self) -> NFSServer {
+        // set the boot time to now
+        let boot_time = std::time::UNIX_EPOCH.elapsed().unwrap().as_secs();
         NFSServer {
             bind: self.bind.clone(),
             root: self.root.clone(),
             service_0: Some(server::nfs40::NFS40Server::new()),
+            boot_time,
         }
     }
 }
@@ -225,6 +231,7 @@ mod test_utils {
             "127.0.0.1:12345".to_owned(),
             client_mananger_handle,
             file_mananger_handle,
+            0_u64,
         )
     }
 }

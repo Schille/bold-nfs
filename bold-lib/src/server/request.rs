@@ -11,6 +11,10 @@ pub struct NfsRequest {
     cmanager: ClientManagerHandle,
     // local filehandle manager
     fmanager: FileManagerHandle,
+    // time the server was booted
+    pub boot_time: u64,
+    // time the request was received
+    pub request_time: u64,
 }
 
 impl NfsRequest {
@@ -18,12 +22,17 @@ impl NfsRequest {
         client_addr: String,
         cmanager: ClientManagerHandle,
         fmanager: FileManagerHandle,
+        boot_time: u64,
     ) -> Self {
+        let request_time = std::time::UNIX_EPOCH.elapsed().unwrap().as_secs();
+
         NfsRequest {
             client_addr,
             filehandle_id: None,
             cmanager,
             fmanager,
+            boot_time,
+            request_time,
         }
     }
 

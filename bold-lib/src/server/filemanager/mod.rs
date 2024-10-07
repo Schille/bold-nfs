@@ -155,10 +155,40 @@ impl FileManager {
                     // this is root
                     parent_path = "/".to_string();
                 }
-                self.touch_parent_filehandle_by_path(parent_path);
+
+                let parent_filehandle = self.get_filehandle_by_path(&parent_path).unwrap();
+                // TODO: check locks
+                self.touch_filehandle(parent_filehandle);
                 req.respond_to.send(()).unwrap()
             }
+            FileManagerMessage::TouchFile(req) => {
+                let filehandle = self.get_filehandle_by_id(&req.id);
+                match filehandle {
+                    Some(filehandle) => {
+                        // TODO: check locks
+                        self.touch_filehandle(filehandle);
+                    }
+                    None => {
+                        // we don't do nothing here
+                    }
+                }
+            }
         }
+    }
+
+    fn touch_filehandle(&mut self, filehandle: Filehandle) {
+        // create a new filehandle with refreshed attributes
+        let fh = Filehandle::new(
+            filehandle.file.clone(),
+            filehandle.id.clone(),
+            self.fsid,
+            self.fsid,
+            filehandle.version,
+        );
+        self.fhdb.remove_by_id(&filehandle.id);
+        debug!("Touching filehandle: {:?}", fh);
+        // and replace the old one
+        self.fhdb.insert(fh);
     }
 
     fn create_file(&mut self, request_file: &VfsPath) -> Option<Box<Filehandle>> {
@@ -180,28 +210,11 @@ impl FileManager {
             // this is root
             path = "/".to_string();
         }
-        self.touch_parent_filehandle_by_path(path);
+        // TODO: check locks
+        let parent_filehandle = self.get_filehandle_by_path(&path).unwrap();
+        self.touch_filehandle(parent_filehandle);
 
         Some(Box::new(fh))
-    }
-
-    fn touch_parent_filehandle_by_path(&mut self, path: String) {
-        // make the change visible in the parent filehandle, too
-        let parent_filehandle = self.get_filehandle_by_path(&path);
-        if let Some(mut parent_filehandle) = parent_filehandle {
-            let new_change = Filehandle::attr_change(&parent_filehandle.file);
-            if new_change == parent_filehandle.attr_change {
-                // this is a special case, if we cannot determine change via modified time stamp
-                // for example with MemoryFS
-                parent_filehandle.attr_change += 1;
-            } else {
-                parent_filehandle.attr_change = new_change;
-            }
-            self.fhdb
-                .modify_by_id(&parent_filehandle.id, |filehandle: &mut Filehandle| {
-                    *filehandle = parent_filehandle.clone();
-                });
-        }
     }
 
     fn get_new_lockingstate_id(&mut self) -> [u8; 12] {
@@ -265,7 +278,7 @@ impl FileManager {
         match self.get_filehandle_by_id(&id) {
             Some(fh) => fh.clone(),
             None => {
-                let fh = Filehandle::new(file.clone(), id, self.fsid, self.fsid);
+                let fh = Filehandle::new(file.clone(), id, self.fsid, self.fsid, 0);
                 debug!("Storing new filehandle: {:?}", fh);
                 self.fhdb.insert(fh.clone());
                 fh

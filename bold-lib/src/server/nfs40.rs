@@ -20,6 +20,7 @@ mod op_renew;
 mod op_set_clientid;
 mod op_set_clientid_confirm;
 mod op_setattr;
+mod op_write;
 
 use super::NfsProtoImpl;
 use tracing::error;
@@ -136,6 +137,7 @@ impl NfsProtoImpl for NFS40Server {
                         NfsArgOp::OpsetclientidConfirm(args) => args.execute(request).await,
                         NfsArgOp::Opsetattr(args) => args.execute(request).await,
                         NfsArgOp::Opremove(args) => args.execute(request).await,
+                        NfsArgOp::Opwrite(args) => args.execute(request).await,
 
                         NfsArgOp::Opcommit(_) => self.operation_not_supported(request),
                         NfsArgOp::Opcreate(_) => self.operation_not_supported(request),
@@ -165,7 +167,7 @@ impl NfsProtoImpl for NFS40Server {
                         NfsArgOp::OpSecinfo(_) => self.operation_not_supported(request),
 
                         NfsArgOp::Opverify(_) => self.operation_not_supported(request),
-                        NfsArgOp::Opwrite(_) => self.operation_not_supported(request),
+
                         NfsArgOp::OpreleaseLockOwner(_) => self.operation_not_supported(request),
                     };
                     // match the result of the operation, pass on success, return on error

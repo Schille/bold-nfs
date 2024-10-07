@@ -15,8 +15,8 @@ impl NfsOperation for Close4args {
         NfsOpResponse {
             request,
             result: Some(NfsResOp4::Opclose(Close4res::OpenStateid(Stateid4 {
-                seqid: 0,
-                other: [0; 12],
+                seqid: self.seqid,
+                other: self.open_stateid.other,
             }))),
             status: NfsStat4::Nfs4Ok,
         }

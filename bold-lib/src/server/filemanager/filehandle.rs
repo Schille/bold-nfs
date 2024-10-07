@@ -72,20 +72,23 @@ pub struct Filehandle {
     // attached locks, see LockingState
     // these are not stored in the database, they are retrived on-the-fly
     pub locks: Vec<LockingState>,
+    // the version of this filehandle, increased during updates
+    pub version: u64,
 }
 
 impl Filehandle {
-    pub fn new(file: VfsPath, id: Vec<u8>, major: u64, minor: u64) -> Self {
+    pub fn new(file: VfsPath, id: Vec<u8>, major: u64, minor: u64, version: u64) -> Self {
         let init_time = Self::attr_time_access();
         let mut path = file.as_str().to_string();
         if path.is_empty() {
             path = "/".to_string();
         }
+        let version = version + 1;
         Filehandle {
             id,
             path,
             attr_type: Self::attr_type(&file),
-            attr_change: Self::attr_change(&file),
+            attr_change: Self::attr_change(&file, version),
             attr_size: Self::attr_size(&file),
             attr_fileid: Self::attr_fileid(&file),
             attr_fsid: Self::attr_fsid(major, minor),
@@ -99,6 +102,7 @@ impl Filehandle {
             file,
             verifier: None,
             locks: Vec::new(),
+            version,
         }
     }
 
@@ -112,7 +116,7 @@ impl Filehandle {
         NfsFtype4::Nf4Undef
     }
 
-    pub fn attr_change(file: &VfsPath) -> u64 {
+    pub fn attr_change(file: &VfsPath, default: u64) -> u64 {
         let v = file.metadata();
         debug!("### attr_change ### {:?}", v);
         if v.is_ok() {
@@ -120,7 +124,7 @@ impl Filehandle {
                 return v.duration_since(UNIX_EPOCH).unwrap().as_secs();
             }
         }
-        0
+        default
     }
 
     fn attr_fileid(file: &VfsPath) -> u64 {
@@ -146,7 +150,7 @@ impl Filehandle {
         "1000".to_string()
     }
 
-    fn attr_size(file: &VfsPath) -> u64 {
+    pub fn attr_size(file: &VfsPath) -> u64 {
         file.metadata().unwrap().len
     }
 
@@ -154,7 +158,7 @@ impl Filehandle {
         file.metadata().unwrap().len
     }
 
-    fn attr_time_access() -> Nfstime4 {
+    pub fn attr_time_access() -> Nfstime4 {
         let since_epoch = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap();

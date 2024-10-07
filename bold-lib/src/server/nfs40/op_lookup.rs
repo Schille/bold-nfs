@@ -44,7 +44,8 @@ impl NfsOperation for Lookup4args {
         let filehandle = match resp {
             Ok(filehandle) => filehandle,
             Err(e) => {
-                error!("FileManagerError {:?}", e);
+                // a missing file during lookup is not an error
+                debug!("FileManagerError {:?}", e);
                 request.unset_filehandle_id();
                 return NfsOpResponse {
                     request,

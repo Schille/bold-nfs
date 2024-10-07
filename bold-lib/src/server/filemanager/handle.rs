@@ -12,6 +12,7 @@ pub enum FileManagerMessage {
     GetFilehandleAttrs(GetFilehandleAttrsRequest),
     CreateFile(CreateFileRequest),
     RemoveFile(RemoveFileRequest),
+    TouchFile(TouchFileRequest),
     LockFile(),
     CloseFile(),
 }
@@ -45,6 +46,10 @@ pub struct CreateFileRequest {
 pub struct RemoveFileRequest {
     pub path: VfsPath,
     pub respond_to: oneshot::Sender<()>,
+}
+
+pub struct TouchFileRequest {
+    pub id: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -219,5 +224,12 @@ impl FileManagerHandle {
                 nfs_error: NfsStat4::Nfs4errServerfault,
             }),
         }
+    }
+
+    pub async fn touch_file(&self, id: Vec<u8>) {
+        self.sender
+            .send(FileManagerMessage::TouchFile(TouchFileRequest { id }))
+            .await
+            .unwrap();
     }
 }

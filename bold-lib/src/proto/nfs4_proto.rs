@@ -582,8 +582,8 @@ pub enum Access4res {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Close4args {
     /* CURRENT_FH: object */
-    seqid: Seqid4,
-    open_stateid: Stateid4,
+    pub seqid: Seqid4,
+    pub open_stateid: Stateid4,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1465,7 +1465,7 @@ pub struct Verify4res {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-
+#[repr(u32)]
 pub enum StableHow4 {
     Unstable4 = 0,
     DataSync4 = 1,
@@ -1484,16 +1484,16 @@ pub struct Write4args {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Write4resok {
-    count: Count4,
-    committed: StableHow4,
+    pub count: Count4,
+    pub committed: StableHow4,
     #[serde(with = "serde_xdr::opaque_data::fixed_length")]
-    writeverf: [u8; 8],
+    pub writeverf: [u8; 8],
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-
+#[repr(u32)]
 pub enum Write4res {
-    Resok4(Write4resok),
+    Resok4(Write4resok) = 0,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
