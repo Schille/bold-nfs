@@ -1,10 +1,7 @@
 use async_trait::async_trait;
 
-use super::{request::NfsRequest, response::NfsOpResponse};
-use crate::{
-    proto::{nfs4_proto::*, rpc_proto::*},
-    server::operation::NfsOperation,
-};
+use super::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
+use bold_proto::{nfs4_proto::*, rpc_proto::*};
 
 mod op_access;
 mod op_close;

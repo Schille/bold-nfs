@@ -1,4 +1,4 @@
-use crate::proto::nfs4_proto::{NfsResOp4, NfsStat4};
+use bold_proto::nfs4_proto::{NfsResOp4, NfsStat4};
 
 use super::request::NfsRequest;
 

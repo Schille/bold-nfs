@@ -3,7 +3,7 @@ use tracing::{debug, error};
 
 use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
 
-use super::{NfsResOp4, NfsStat4, Renew4args, Renew4res};
+use bold_proto::nfs4_proto::{NfsResOp4, NfsStat4, Renew4args, Renew4res};
 
 #[async_trait]
 impl NfsOperation for Renew4args {

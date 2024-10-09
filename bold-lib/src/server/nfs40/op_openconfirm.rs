@@ -3,7 +3,7 @@ use tracing::debug;
 
 use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
 
-use super::{NfsResOp4, NfsStat4, OpenConfirm4args, OpenConfirm4res, OpenConfirm4resok, Stateid4};
+use bold_proto::nfs4_proto::{NfsResOp4, NfsStat4, OpenConfirm4args, OpenConfirm4res, OpenConfirm4resok, Stateid4};
 
 #[async_trait]
 impl NfsOperation for OpenConfirm4args {

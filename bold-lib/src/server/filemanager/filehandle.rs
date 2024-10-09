@@ -7,7 +7,7 @@ use multi_index_map::MultiIndexMap;
 use tracing::debug;
 use vfs::VfsPath;
 
-use crate::proto::nfs4_proto::{Fsid4, NfsFtype4, Nfstime4, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR};
+use bold_proto::nfs4_proto::{Fsid4, NfsFtype4, Nfstime4, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR};
 
 use super::locking::LockingState;
 

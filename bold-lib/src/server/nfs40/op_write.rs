@@ -5,15 +5,15 @@ use tracing::{debug, error};
 
 use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
 
-use super::{NfsResOp4, NfsStat4, StableHow4, Write4args, Write4res, Write4resok};
+use bold_proto::nfs4_proto::{NfsResOp4, NfsStat4, StableHow4, Write4args, Write4res, Write4resok};
 
-impl Write4args {
-    fn verifier_from_boot(&self, boot_time: &u64) -> [u8; 8] {
-        let mut verifier = [0; 8];
-        verifier.copy_from_slice(boot_time.to_be_bytes().as_ref());
-        verifier
-    }
+
+fn verifier_from_boot(boot_time: &u64) -> [u8; 8] {
+    let mut verifier = [0; 8];
+    verifier.copy_from_slice(boot_time.to_be_bytes().as_ref());
+    verifier
 }
+
 
 #[async_trait]
 impl NfsOperation for Write4args {
@@ -57,7 +57,7 @@ impl NfsOperation for Write4args {
             result: Some(NfsResOp4::Opwrite(Write4res::Resok4(Write4resok {
                 count: count,
                 committed: stable,
-                writeverf: self.verifier_from_boot(&boot_time),
+                writeverf: verifier_from_boot(&boot_time),
             }))),
             status: NfsStat4::Nfs4Ok,
         }

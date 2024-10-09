@@ -8,7 +8,7 @@ use crate::server::{
     response::NfsOpResponse,
 };
 
-use super::{Lookup4args, NfsStat4};
+use bold_proto::nfs4_proto::{Lookup4args, NfsStat4};
 
 #[async_trait]
 impl NfsOperation for Lookup4args {

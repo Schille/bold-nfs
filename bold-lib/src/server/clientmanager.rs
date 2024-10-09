@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 use tracing::error;
 
-use crate::proto::nfs4_proto::NfsStat4;
+use bold_proto::nfs4_proto::NfsStat4;
 
 type ClientDb = MultiIndexClientEntryMap;
 
@@ -435,7 +435,7 @@ mod tests {
 
     use tokio::sync::mpsc;
 
-    use crate::proto::nfs4_proto::NfsStat4;
+    use bold_proto::nfs4_proto::NfsStat4;
 
     #[test]
     fn test_upsert_clients_no_principals() {

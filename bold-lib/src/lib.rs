@@ -1,11 +1,12 @@
 #![doc = include_str!("../README.md")]
 
-pub mod proto;
 pub mod server;
 
-use crate::proto::XDRProtoCodec;
+use bold_proto::rpc_proto::{AcceptBody, AcceptedReply, OpaqueAuth, ReplyBody};
+use bold_proto::XDRProtoCodec;
 use futures::SinkExt;
-use proto::rpc_proto::{AcceptBody, AcceptedReply, OpaqueAuth, ReplyBody};
+use server::clientmanager::ClientManagerHandle;
+use server::filemanager::FileManagerHandle;
 use tokio::net::TcpListener;
 use tokio_stream::StreamExt;
 use tokio_util::codec::Framed;
@@ -13,8 +14,6 @@ use tracing::{error, info, span, trace, Level};
 pub use vfs;
 pub use vfs::VfsPath;
 
-use self::server::clientmanager::ClientManagerHandle;
-use self::server::filemanager::FileManagerHandle;
 use crate::server::request::NfsRequest;
 use crate::server::{NFSService, NfsProtoImpl};
 
@@ -91,9 +90,9 @@ impl NFSServer {
                                     }
                                     Some(Err(e)) => {
                                         error!("couldn't get message: {:?}", e);
-                                        let resp = Box::new(proto::rpc_proto::RpcReplyMsg {
+                                        let resp = Box::new(bold_proto::rpc_proto::RpcReplyMsg {
                                             xid: 0,
-                                            body: proto::rpc_proto::MsgType::Reply(
+                                            body: bold_proto::rpc_proto::MsgType::Reply(
                                                 ReplyBody::MsgAccepted(AcceptedReply {
                                                     verf: OpaqueAuth::AuthNull(Vec::<u8>::new()),
                                                     reply_data: AcceptBody::GarbageArgs,
@@ -160,12 +159,9 @@ impl ServerBuilder {
 #[cfg(test)]
 mod test_utils {
     use vfs::{MemoryFS, VfsPath};
-
-    use crate::{
-        proto::nfs4_proto::{CbClient4, ClientAddr4, NfsClientId4, SetClientId4args},
-        server::{
-            clientmanager::ClientManagerHandle, filemanager::FileManagerHandle, request::NfsRequest,
-        },
+    use bold_proto::nfs4_proto::{CbClient4, ClientAddr4, NfsClientId4, SetClientId4args};
+    use crate::server::{
+            clientmanager::ClientManagerHandle, filemanager::FileManagerHandle, request::NfsRequest,   
     };
 
     pub fn create_dummyfs() -> VfsPath {

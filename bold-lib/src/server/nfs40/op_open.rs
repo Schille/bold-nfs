@@ -9,172 +9,171 @@ use crate::server::{
     response::NfsOpResponse,
 };
 
-use super::{CreateHow4, NfsResOp4, NfsStat4, Open4args, OpenClaim4, OpenFlag4, Stateid4};
+use bold_proto::nfs4_proto::{CreateHow4, NfsResOp4, NfsStat4, Open4args, OpenClaim4, OpenFlag4, Stateid4};
 
-impl Open4args {
-    async fn open_for_reading(
-        &self,
-        filehandle: Box<Filehandle>,
-        file: &String,
-        mut request: NfsRequest,
-    ) -> NfsOpResponse {
-        let path = filehandle.path;
 
-        let fh_path = {
-            if path == "/" {
-                format!("{}{}", path, file)
-            } else {
-                format!("{}/{}", path, file)
-            }
-        };
+async fn open_for_reading(
+    filehandle: Box<Filehandle>,
+    file: &String,
+    mut request: NfsRequest,
+) -> NfsOpResponse {
+    let path = filehandle.path;
 
-        debug!("open_for_reading {:?}", fh_path);
-        let filehandle = match request
-            .file_manager()
-            .get_filehandle_for_path(fh_path)
-            .await
-        {
-            Ok(filehandle) => filehandle,
-            Err(e) => {
-                error!("Err {:?}", e);
-                return NfsOpResponse {
-                    request,
-                    result: None,
-                    status: e.nfs_error,
-                };
-            }
-        };
-
-        request.set_filehandle_id(filehandle.id);
-
-        NfsOpResponse {
-            request,
-            result: Some(NfsResOp4::Opopen(Open4res::Resok4(Open4resok {
-                stateid: Stateid4 {
-                    seqid: 0,
-                    other: [0; 12],
-                },
-                cinfo: ChangeInfo4 {
-                    atomic: false,
-                    before: 0,
-                    after: 0,
-                },
-                // OPEN4_RESULT_CONFIRM indicates that the client MUST execute an
-                // OPEN_CONFIRM operation before using the open file.
-                rflags: OPEN4_RESULT_CONFIRM,
-                attrset: Vec::new(),
-                delegation: OpenDelegation4::None,
-            }))),
-            status: NfsStat4::Nfs4Ok,
+    let fh_path = {
+        if path == "/" {
+            format!("{}{}", path, file)
+        } else {
+            format!("{}/{}", path, file)
         }
-    }
+    };
 
-    async fn open_for_writing(
-        &self,
-        filehandle: Box<Filehandle>,
-        file: &String,
-        how: &CreateHow4,
-        mut request: NfsRequest,
-    ) -> NfsOpResponse {
-        let path = filehandle.path;
-
-        let fh_path = {
-            if path == "/" {
-                format!("{}{}", path, file)
-            } else {
-                format!("{}/{}", path, file)
-            }
-        };
-
-        debug!("open_for_writing {:?}", fh_path);
-
-        let newfile_op = filehandle.file.join(file);
-
-        let filehandle = match how {
-            CreateHow4::UNCHECKED4(_fattr) => {
-                match request
-                    .file_manager()
-                    .create_file(
-                        newfile_op.unwrap(),
-                        self.owner.clientid,
-                        self.owner.owner.clone(),
-                        self.share_access,
-                        self.share_deny,
-                        None,
-                    )
-                    .await
-                {
-                    Ok(filehandle) => filehandle,
-                    Err(e) => {
-                        error!("Err {:?}", e);
-                        return NfsOpResponse {
-                            request,
-                            result: None,
-                            status: NfsStat4::Nfs4errServerfault,
-                        };
-                    }
-                }
-            }
-            CreateHow4::EXCLUSIVE4(verifier) => {
-                match request
-                    .file_manager()
-                    .create_file(
-                        newfile_op.unwrap(),
-                        self.owner.clientid,
-                        self.owner.owner.clone(),
-                        self.share_access,
-                        self.share_deny,
-                        Some(*verifier),
-                    )
-                    .await
-                {
-                    Ok(filehandle) => filehandle,
-                    Err(e) => {
-                        error!("Err {:?}", e);
-                        return NfsOpResponse {
-                            request,
-                            result: None,
-                            status: NfsStat4::Nfs4errServerfault,
-                        };
-                    }
-                }
-            }
-            _ => {
-                error!("Unsupported CreateHow4 {:?}", how);
-                return NfsOpResponse {
-                    request,
-                    result: None,
-                    status: NfsStat4::Nfs4errNotsupp,
-                };
-            }
-        };
-
-        request.set_filehandle_id(filehandle.id);
-        // we expect this filehandle to have one lock (for the shared reservation)
-        let lock = &filehandle.locks[0];
-
-        NfsOpResponse {
-            request,
-            result: Some(NfsResOp4::Opopen(Open4res::Resok4(Open4resok {
-                stateid: Stateid4 {
-                    seqid: lock.seqid,
-                    other: lock.stateid,
-                },
-                cinfo: ChangeInfo4 {
-                    atomic: false,
-                    before: 0,
-                    after: 0,
-                },
-                // OPEN4_RESULT_CONFIRM indicates that the client MUST execute an
-                // OPEN_CONFIRM operation before using the open file.
-                rflags: OPEN4_RESULT_CONFIRM,
-                attrset: Vec::new(),
-                delegation: OpenDelegation4::None,
-            }))),
-            status: NfsStat4::Nfs4Ok,
+    debug!("open_for_reading {:?}", fh_path);
+    let filehandle = match request
+        .file_manager()
+        .get_filehandle_for_path(fh_path)
+        .await
+    {
+        Ok(filehandle) => filehandle,
+        Err(e) => {
+            error!("Err {:?}", e);
+            return NfsOpResponse {
+                request,
+                result: None,
+                status: e.nfs_error,
+            };
         }
+    };
+
+    request.set_filehandle_id(filehandle.id);
+
+    NfsOpResponse {
+        request,
+        result: Some(NfsResOp4::Opopen(Open4res::Resok4(Open4resok {
+            stateid: Stateid4 {
+                seqid: 0,
+                other: [0; 12],
+            },
+            cinfo: ChangeInfo4 {
+                atomic: false,
+                before: 0,
+                after: 0,
+            },
+            // OPEN4_RESULT_CONFIRM indicates that the client MUST execute an
+            // OPEN_CONFIRM operation before using the open file.
+            rflags: OPEN4_RESULT_CONFIRM,
+            attrset: Vec::new(),
+            delegation: OpenDelegation4::None,
+        }))),
+        status: NfsStat4::Nfs4Ok,
     }
 }
+
+async fn open_for_writing(
+    args: &Open4args,
+    filehandle: Box<Filehandle>,
+    file: &String,
+    how: &CreateHow4,
+    mut request: NfsRequest,
+) -> NfsOpResponse {
+    let path = filehandle.path;
+
+    let fh_path = {
+        if path == "/" {
+            format!("{}{}", path, file)
+        } else {
+            format!("{}/{}", path, file)
+        }
+    };
+
+    debug!("open_for_writing {:?}", fh_path);
+
+    let newfile_op = filehandle.file.join(file);
+
+    let filehandle = match how {
+        CreateHow4::UNCHECKED4(_fattr) => {
+            match request
+                .file_manager()
+                .create_file(
+                    newfile_op.unwrap(),
+                    args.owner.clientid,
+                    args.owner.owner.clone(),
+                    args.share_access,
+                    args.share_deny,
+                    None,
+                )
+                .await
+            {
+                Ok(filehandle) => filehandle,
+                Err(e) => {
+                    error!("Err {:?}", e);
+                    return NfsOpResponse {
+                        request,
+                        result: None,
+                        status: NfsStat4::Nfs4errServerfault,
+                    };
+                }
+            }
+        }
+        CreateHow4::EXCLUSIVE4(verifier) => {
+            match request
+                .file_manager()
+                .create_file(
+                    newfile_op.unwrap(),
+                    args.owner.clientid,
+                    args.owner.owner.clone(),
+                    args.share_access,
+                    args.share_deny,
+                    Some(*verifier),
+                )
+                .await
+            {
+                Ok(filehandle) => filehandle,
+                Err(e) => {
+                    error!("Err {:?}", e);
+                    return NfsOpResponse {
+                        request,
+                        result: None,
+                        status: NfsStat4::Nfs4errServerfault,
+                    };
+                }
+            }
+        }
+        _ => {
+            error!("Unsupported CreateHow4 {:?}", how);
+            return NfsOpResponse {
+                request,
+                result: None,
+                status: NfsStat4::Nfs4errNotsupp,
+            };
+        }
+    };
+
+    request.set_filehandle_id(filehandle.id);
+    // we expect this filehandle to have one lock (for the shared reservation)
+    let lock = &filehandle.locks[0];
+
+    NfsOpResponse {
+        request,
+        result: Some(NfsResOp4::Opopen(Open4res::Resok4(Open4resok {
+            stateid: Stateid4 {
+                seqid: lock.seqid,
+                other: lock.stateid,
+            },
+            cinfo: ChangeInfo4 {
+                atomic: false,
+                before: 0,
+                after: 0,
+            },
+            // OPEN4_RESULT_CONFIRM indicates that the client MUST execute an
+            // OPEN_CONFIRM operation before using the open file.
+            rflags: OPEN4_RESULT_CONFIRM,
+            attrset: Vec::new(),
+            delegation: OpenDelegation4::None,
+        }))),
+        status: NfsStat4::Nfs4Ok,
+    }
+}
+
 
 #[async_trait]
 impl NfsOperation for Open4args {
@@ -240,11 +239,11 @@ impl NfsOperation for Open4args {
         match &self.openhow {
             OpenFlag4::Open4Nocreate => {
                 // Open a file for reading
-                self.open_for_reading(filehandle, file, request).await
+                open_for_reading(filehandle, file, request).await
             }
             OpenFlag4::How(how) => {
                 // Open a file for writing
-                self.open_for_writing(filehandle, file, how, request).await
+                open_for_writing(self, filehandle, file, how, request).await
             }
         }
     }

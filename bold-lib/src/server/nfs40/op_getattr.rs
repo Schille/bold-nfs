@@ -5,7 +5,7 @@ use crate::server::{
     nfs40::NfsStat4, operation::NfsOperation, request::NfsRequest, response::NfsOpResponse,
 };
 
-use super::{Fattr4, Getattr4args, Getattr4resok, NfsResOp4};
+use bold_proto::nfs4_proto::{Fattr4, Getattr4args, Getattr4resok, NfsResOp4};
 
 #[async_trait]
 impl NfsOperation for Getattr4args {

@@ -6,7 +6,7 @@ use crate::server::{
     response::NfsOpResponse,
 };
 
-use super::{NfsResOp4, NfsStat4, SetClientId4args, SetClientId4res, SetClientId4resok};
+use bold_proto::nfs4_proto::{NfsResOp4, NfsStat4, SetClientId4args, SetClientId4res, SetClientId4resok};
 
 #[async_trait]
 impl NfsOperation for SetClientId4args {

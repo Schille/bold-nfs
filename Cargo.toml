@@ -2,5 +2,6 @@
 resolver = "2"
 members = [ 
     "bold-mem",
-    "bold-lib",
+    "bold-lib", 
+    "proto",
 ]

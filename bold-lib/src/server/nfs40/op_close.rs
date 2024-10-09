@@ -3,7 +3,7 @@ use tracing::debug;
 
 use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
 
-use super::{Close4args, Close4res, NfsResOp4, NfsStat4, Stateid4};
+use bold_proto::nfs4_proto::{Close4args, Close4res, NfsResOp4, NfsStat4, Stateid4};
 
 #[async_trait]
 impl NfsOperation for Close4args {

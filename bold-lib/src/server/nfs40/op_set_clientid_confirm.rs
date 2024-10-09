@@ -3,7 +3,7 @@ use tracing::{debug, error};
 
 use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
 
-use super::{NfsResOp4, NfsStat4, SetClientIdConfirm4args, SetClientIdConfirm4res};
+use bold_proto::nfs4_proto::{NfsResOp4, NfsStat4, SetClientIdConfirm4args, SetClientIdConfirm4res};
 
 #[async_trait]
 impl NfsOperation for SetClientIdConfirm4args {

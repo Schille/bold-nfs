@@ -4,8 +4,7 @@ use async_trait::async_trait;
 use tracing::{debug, error};
 
 use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
-
-use super::{NfsResOp4, NfsStat4, Read4args, Read4res, Read4resok};
+use bold_proto::nfs4_proto::{NfsResOp4, NfsStat4, Read4args, Read4res, Read4resok};
 
 #[async_trait]
 impl NfsOperation for Read4args {

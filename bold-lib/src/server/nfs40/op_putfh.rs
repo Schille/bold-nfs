@@ -2,8 +2,7 @@ use async_trait::async_trait;
 use tracing::debug;
 
 use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
-
-use super::{NfsResOp4, NfsStat4, PutFh4args, PutFh4res};
+use bold_proto::nfs4_proto::{NfsResOp4, NfsStat4, PutFh4args, PutFh4res};
 
 #[async_trait]
 impl NfsOperation for PutFh4args {

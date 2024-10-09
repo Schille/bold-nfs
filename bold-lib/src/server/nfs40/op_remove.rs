@@ -8,7 +8,7 @@ use crate::server::{
     response::NfsOpResponse,
 };
 
-use super::{NfsResOp4, Remove4args, Remove4res};
+use bold_proto::nfs4_proto::{NfsResOp4, Remove4args, Remove4res};
 
 #[async_trait]
 impl NfsOperation for Remove4args {

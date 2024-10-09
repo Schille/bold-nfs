@@ -1,4 +1,4 @@
-use crate::proto::nfs4_proto::{
+use bold_proto::nfs4_proto::{
     FileAttr, FileAttrValue, NfsLease4, NfsStat4, ACL4_SUPPORT_ALLOW_ACL, FH4_VOLATILE_ANY,
     MODE4_RGRP, MODE4_ROTH, MODE4_RUSR,
 };

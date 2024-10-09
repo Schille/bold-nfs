@@ -8,7 +8,7 @@ use serde::{
 };
 use tracing::debug;
 
-use crate::proto::nfs4_proto::Compound4args;
+use crate::nfs4_proto::Compound4args;
 
 use super::{
     nfs4_proto::{Fattr4, FileAttr, FileAttrValue, Getattr4resok, NfsResOp4, NfsStat4},

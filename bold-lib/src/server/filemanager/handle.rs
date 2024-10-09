@@ -2,7 +2,7 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::debug;
 use vfs::VfsPath;
 
-use crate::proto::nfs4_proto::{FileAttr, FileAttrValue, NfsStat4};
+use bold_proto::nfs4_proto::{FileAttr, FileAttrValue, NfsStat4};
 
 use super::{filehandle::Filehandle, run_file_manager, FileManager};
 
