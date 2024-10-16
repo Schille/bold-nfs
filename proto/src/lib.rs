@@ -6,7 +6,7 @@ use bytes::{Buf, BytesMut};
 use serde_xdr::{from_reader, to_writer, CompatDeserializationError};
 use std::io::Cursor;
 use tokio_util::codec::{Decoder, Encoder};
-use tracing::{instrument, trace};
+use tracing::trace;
 
 use self::rpc_proto::{RpcCallMsg, RpcReplyMsg};
 
@@ -31,7 +31,6 @@ impl Decoder for XDRProtoCodec {
     type Item = RpcCallMsg;
     type Error = std::io::Error;
 
-    #[instrument(skip(self), name = "client")]
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         let mut message_data = Vec::new();
         let mut is_last = false;

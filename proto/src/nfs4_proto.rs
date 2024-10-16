@@ -601,7 +601,7 @@ pub struct Commit4args {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Commit4resok {
     #[serde(with = "serde_xdr::opaque_data::fixed_length")]
-    writeverf: [u8; 8],
+    pub writeverf: [u8; 8],
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
