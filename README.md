@@ -17,7 +17,7 @@ Bold's design goals are:
 Anti goals include complicated compile-time computations, such as macro or type trickery.
 
 ## Demo and testing
-There is a crate `bold-mem` (binary), which reads in a
+There is a binary `bold-mem` (in /exec), which reads in a
 YAML file and serves this as in-memory file system.
 
 On Linux:
@@ -43,15 +43,15 @@ contents:
 ```
 
 You can compile and run it from the repo:
-1) `cargo build -p bold-mem`
-2) `./target/debug/bold-mem bold-mem/memoryfs.yaml`  
+1) `cargo run -p bold-mem -- --debug exec/memoryfs.yam`
 (optionally, you can enable the `--debug` flag)
 
-3) Open another terminal
-4) `mkdir /tmp/demo`
-5) `sudo mount.nfs4 -n -v -o fg,soft,sec=none,vers=4.0,port=11112 127.0.0.1:/ /tmp/demo`
-6) `ls /tmp/demo/`, `cat /tmp/demo/home/user/file1`  
+2) Open another terminal
+3) `mkdir /tmp/demo`
+4) `sudo mount.nfs4 -n -v -o fg,soft,sec=none,vers=4.0,port=11112 127.0.0.1:/ /tmp/demo`
+5) `ls /tmp/demo/`, `cat /tmp/demo/home/user/file1`  
 (have a look around in your mounted file system)
+6) Copy files from your local computer into the mounted file system and retrive it back
 7) Don't forget to unmount `sudo umount /tmp/demo`, before stopping `bold-mem`
 
 ## State of implementation
