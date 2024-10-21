@@ -164,6 +164,7 @@ impl NfsOperation for Readdir4args {
 #[cfg(test)]
 mod integration_tests {
 
+    use bold_proto::nfs4_proto::Attrlist4;
     use tracing_test::traced_test;
 
     use crate::{
@@ -194,7 +195,7 @@ mod integration_tests {
             cookieverf: [0u8; 8],
             dircount: 262122,
             maxcount: 1048488,
-            attr_request: vec![
+            attr_request: Attrlist4::<FileAttr>::new(Some(vec![
                 FileAttr::Type,
                 FileAttr::Change,
                 FileAttr::Size,
@@ -212,7 +213,7 @@ mod integration_tests {
                 FileAttr::TimeMetadata,
                 FileAttr::TimeModify,
                 FileAttr::MountedOnFileid,
-            ],
+            ])),
         };
 
         let readdir_response = readdir_args.execute(putfh_request.request).await;
@@ -243,7 +244,7 @@ mod integration_tests {
             cookieverf: [0u8; 8],
             dircount: 262122,
             maxcount: 1048488,
-            attr_request: vec![
+            attr_request: Attrlist4::<FileAttr>::new(Some(vec![
                 FileAttr::Type,
                 FileAttr::Change,
                 FileAttr::Size,
@@ -261,7 +262,7 @@ mod integration_tests {
                 FileAttr::TimeMetadata,
                 FileAttr::TimeModify,
                 FileAttr::MountedOnFileid,
-            ],
+            ])),
         };
 
         let readdir_response = readdir_args.execute(putfh_request.request).await;

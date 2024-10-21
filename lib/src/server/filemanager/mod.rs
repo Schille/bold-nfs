@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use bold_proto::nfs4_proto::{
-    FileAttr, FileAttrValue, NfsLease4, NfsStat4, ACL4_SUPPORT_ALLOW_ACL, FH4_VOLATILE_ANY,
-    MODE4_RGRP, MODE4_ROTH, MODE4_RUSR,
+    Attrlist4, FileAttr, FileAttrValue, NfsLease4, NfsStat4, ACL4_SUPPORT_ALLOW_ACL,
+    FH4_VOLATILE_ANY, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR,
 };
 
 mod filehandle;
@@ -476,12 +476,12 @@ impl FileManager {
         NfsStat4::Nfs4errInval
     }
 
-    pub fn attr_supported_attrs(&self) -> Vec<FileAttr> {
+    pub fn attr_supported_attrs(&self) -> Attrlist4<FileAttr> {
         // supported_attrs:
         // The bit vector that would retrieve all REQUIRED and RECOMMENDED
         // attributes that are supported for this object.  The scope of this
         //attribute applies to all objects with a matching fsid.
-        vec![
+        Attrlist4::<FileAttr>::new(Some(vec![
             FileAttr::SupportedAttrs,
             FileAttr::Type,
             FileAttr::FhExpireType,
@@ -509,7 +509,7 @@ impl FileManager {
             FileAttr::TimeMetadata,
             FileAttr::TimeModify,
             // FileAttr::MountedOnFileid,
-        ]
+        ]))
     }
 
     pub fn attr_expire_type(&self) -> u32 {

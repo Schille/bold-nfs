@@ -1,6 +1,6 @@
 extern crate serde_bytes;
 extern crate serde_xdr;
-use super::utils::{read_attrs, write_argarray, write_attr_values, write_attrs};
+use super::utils::write_argarray;
 
 use num_derive::{FromPrimitive, ToPrimitive};
 
@@ -28,15 +28,15 @@ use serde_derive::{Deserialize, Serialize};
 /*
  * Sizes
  */
-const NFS4_FHSIZE: u32 = 128;
-const NFS4_VERIFIER_SIZE: u32 = 8;
+// const NFS4_FHSIZE: u32 = 128;
+// const NFS4_VERIFIER_SIZE: u32 = 8;
 const NFS4_OTHER_SIZE: u32 = 12;
-const NFS4_OPAQUE_LIMIT: u32 = 1024;
+// const NFS4_OPAQUE_LIMIT: u32 = 1024;
 
-const NFS4_INT64_MAX: i64 = 0x7fffffffffffffff;
-const NFS4_UINT64_MAX: u64 = 0xffffffffffffffff;
-const NFS4_INT32_MAX: i32 = 0x7fffffff;
-const NFS4_UINT32_MAX: u32 = 0xffffffff;
+// const NFS4_INT64_MAX: i64 = 0x7fffffffffffffff;
+// const NFS4_UINT64_MAX: u64 = 0xffffffffffffffff;
+// const NFS4_INT32_MAX: i32 = 0x7fffffff;
+// const NFS4_UINT32_MAX: u32 = 0xffffffff;
 
 /*
  * File types
@@ -136,13 +136,14 @@ pub struct FileAttrFlags {}
 /*
  * Basic data types
  */
-type Attrlist4 = Vec<u8>;
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Attrlist4<T>(pub Vec<T>);
 type Bitmap4 = Vec<u32>;
 type Changeid4 = u64;
 type Clientid4 = u64;
 type Count4 = u32;
 type Length4 = u64;
-type Mode4 = u32;
+// type Mode4 = u32;
 type NfsCookie4 = u64;
 // type NfsFh4 = [u8; NFS4_FHSIZE as usize];
 type NfsFh4 = Vec<u8>;
@@ -157,9 +158,9 @@ type Utf8strCs = String;
 type Utf8strMixed = String;
 type Component4 = Utf8strCs;
 type Linktext4 = Vec<u64>;
-type AsciiRequired4 = String;
+// type AsciiRequired4 = String;
 type Pathname4 = Vec<Component4>;
-type NfsLockid4 = u64;
+// type NfsLockid4 = u64;
 // type Verifier4 = u64;
 
 /*
@@ -228,10 +229,10 @@ type Acetype4 = u32;
 /*
  * Acetype4 values; others can be added as needed.
  */
-const ACE4_ACCESS_ALLOWED_ACE_TYPE: u32 = 0x00000000;
-const ACE4_ACCESS_DENIED_ACE_TYPE: u32 = 0x00000001;
-const ACE4_SYSTEM_AUDIT_ACE_TYPE: u32 = 0x00000002;
-const ACE4_SYSTEM_ALARM_ACE_TYPE: u32 = 0x00000003;
+// const ACE4_ACCESS_ALLOWED_ACE_TYPE: u32 = 0x00000000;
+// const ACE4_ACCESS_DENIED_ACE_TYPE: u32 = 0x00000001;
+// const ACE4_SYSTEM_AUDIT_ACE_TYPE: u32 = 0x00000002;
+// const ACE4_SYSTEM_ALARM_ACE_TYPE: u32 = 0x00000003;
 
 /*
  * ACE flag
@@ -241,13 +242,13 @@ type Aceflag4 = u32;
 /*
  * ACE flag values
  */
-const ACE4_FILE_INHERIT_ACE: u32 = 0x00000001;
-const ACE4_DIRECTORY_INHERIT_ACE: u32 = 0x00000002;
-const ACE4_NO_PROPAGATE_INHERIT_ACE: u32 = 0x00000004;
-const ACE4_INHERIT_ONLY_ACE: u32 = 0x00000008;
-const ACE4_SUCCESSFUL_ACCESS_ACE_FLAG: u32 = 0x00000010;
-const ACE4_FAILED_ACCESS_ACE_FLAG: u32 = 0x00000020;
-const ACE4_IDENTIFIER_GROUP: u32 = 0x00000040;
+// const ACE4_FILE_INHERIT_ACE: u32 = 0x00000001;
+// const ACE4_DIRECTORY_INHERIT_ACE: u32 = 0x00000002;
+// const ACE4_NO_PROPAGATE_INHERIT_ACE: u32 = 0x00000004;
+// const ACE4_INHERIT_ONLY_ACE: u32 = 0x00000008;
+// const ACE4_SUCCESSFUL_ACCESS_ACE_FLAG: u32 = 0x00000010;
+// const ACE4_FAILED_ACCESS_ACE_FLAG: u32 = 0x00000020;
+// const ACE4_IDENTIFIER_GROUP: u32 = 0x00000040;
 
 /*
  * ACE mask
@@ -257,24 +258,24 @@ type Acemask4 = u32;
 /*
  * ACE mask values
  */
-const ACE4_READ_DATA: u32 = 0x00000001;
-const ACE4_LIST_DIRECTORY: u32 = 0x00000001;
-const ACE4_WRITE_DATA: u32 = 0x00000002;
-const ACE4_ADD_FILE: u32 = 0x00000002;
-const ACE4_APPEND_DATA: u32 = 0x00000004;
-const ACE4_ADD_SUBDIRECTORY: u32 = 0x00000004;
-const ACE4_READ_NAMED_ATTRS: u32 = 0x00000008;
-const ACE4_WRITE_NAMED_ATTRS: u32 = 0x00000010;
-const ACE4_EXECUTE: u32 = 0x00000020;
-const ACE4_DELETE_CHILD: u32 = 0x00000040;
-const ACE4_READ_ATTRIBUTES: u32 = 0x00000080;
-const ACE4_WRITE_ATTRIBUTES: u32 = 0x00000100;
+// const ACE4_READ_DATA: u32 = 0x00000001;
+// const ACE4_LIST_DIRECTORY: u32 = 0x00000001;
+// const ACE4_WRITE_DATA: u32 = 0x00000002;
+// const ACE4_ADD_FILE: u32 = 0x00000002;
+// const ACE4_APPEND_DATA: u32 = 0x00000004;
+// const ACE4_ADD_SUBDIRECTORY: u32 = 0x00000004;
+// const ACE4_READ_NAMED_ATTRS: u32 = 0x00000008;
+// const ACE4_WRITE_NAMED_ATTRS: u32 = 0x00000010;
+// const ACE4_EXECUTE: u32 = 0x00000020;
+// const ACE4_DELETE_CHILD: u32 = 0x00000040;
+// const ACE4_READ_ATTRIBUTES: u32 = 0x00000080;
+// const ACE4_WRITE_ATTRIBUTES: u32 = 0x00000100;
 
-const ACE4_DELETE: u32 = 0x00010000;
-const ACE4_READ_ACL: u32 = 0x00020000;
-const ACE4_WRITE_ACL: u32 = 0x00040000;
-const ACE4_WRITE_OWNER: u32 = 0x00080000;
-const ACE4_SYNCHRONIZE: u32 = 0x00100000;
+// const ACE4_DELETE: u32 = 0x00010000;
+// const ACE4_READ_ACL: u32 = 0x00020000;
+// const ACE4_WRITE_ACL: u32 = 0x00040000;
+// const ACE4_WRITE_OWNER: u32 = 0x00080000;
+// const ACE4_SYNCHRONIZE: u32 = 0x00100000;
 
 /*
  * ACE4_GENERIC_READ - defined as a combination of
@@ -284,7 +285,7 @@ const ACE4_SYNCHRONIZE: u32 = 0x00100000;
  *      ACE4_SYNCHRONIZE
  */
 
-const ACE4_GENERIC_READ: u32 = 0x00120081;
+// const ACE4_GENERIC_READ: u32 = 0x00120081;
 
 /*
  * ACE4_GENERIC_WRITE - defined as a combination of
@@ -295,7 +296,7 @@ const ACE4_GENERIC_READ: u32 = 0x00120081;
  *      ACE4_APPEND_DATA |
  *      ACE4_SYNCHRONIZE
  */
-const ACE4_GENERIC_WRITE: u32 = 0x00160106;
+// const ACE4_GENERIC_WRITE: u32 = 0x00160106;
 
 /*
  * ACE4_GENERIC_EXECUTE - defined as a combination of
@@ -304,7 +305,7 @@ const ACE4_GENERIC_WRITE: u32 = 0x00160106;
  *      ACE4_EXECUTE
  *      ACE4_SYNCHRONIZE
  */
-const ACE4_GENERIC_EXECUTE: u32 = 0x001200A0;
+// const ACE4_GENERIC_EXECUTE: u32 = 0x001200A0;
 
 /*
  * Access Control Entry definition
@@ -352,63 +353,63 @@ pub const FH4_VOLATILE_ANY: u32 = 0x00000002;
 pub const FH4_VOL_MIGRATION: u32 = 0x00000004;
 pub const FH4_VOL_RENAME: u32 = 0x00000008;
 
-type Fattr4SupportedAttrs = Bitmap4;
-type Fattr4Type = NfsFtype4;
-type Fattr4FhExpireType = u32;
-type Fattr4Change = Changeid4;
-type Fattr4Size = u64;
-type Fattr4LinkSupport = bool;
-type Fattr4SymlinkSupport = bool;
-type Fattr4NamedAttr = bool;
-type Fattr4Fsid = Fsid4;
-type Fattr4UniqueHandles = bool;
-type Fattr4LeaseTime = NfsLease4;
-type Fattr4RdattrError = NfsStat4;
+// type Fattr4SupportedAttrs = Bitmap4;
+// type Fattr4Type = NfsFtype4;
+// type Fattr4FhExpireType = u32;
+// type Fattr4Change = Changeid4;
+// type Fattr4Size = u64;
+// type Fattr4LinkSupport = bool;
+// type Fattr4SymlinkSupport = bool;
+// type Fattr4NamedAttr = bool;
+// type Fattr4Fsid = Fsid4;
+// type Fattr4UniqueHandles = bool;
+// type Fattr4LeaseTime = NfsLease4;
+// type Fattr4RdattrError = NfsStat4;
 
-type Fattr4Acl<Nfsace4> = Vec<Nfsace4>;
-type Fattr4Aclsupport = u32;
-type Fattr4Archive = bool;
-type Fattr4Cansettime = bool;
-type Fattr4CaseInsensitive = bool;
-type Fattr4CasePreserving = bool;
-type Fattr4ChownRestricted = bool;
-type Fattr4Fileid = u64;
-type Fattr4FilesAvail = u64;
-type Fattr4Filehandle = NfsFh4;
-type Fattr4FilesFree = u64;
-type Fattr4FilesTotal = u64;
-type Fattr4FsLocations = FsLocations4;
-type Fattr4Hidden = bool;
-type Fattr4Homogeneous = bool;
-type Fattr4Maxfilesize = u64;
-type Fattr4Maxlink = u32;
-type Fattr4Maxname = u32;
-type Fattr4Maxread = u64;
-type Fattr4Maxwrite = u64;
-type Fattr4Mimetype = AsciiRequired4;
-type Fattr4Mode = Mode4;
-type Fattr4MountedOnFileid = u64;
-type Fattr4NoTrunc = bool;
-type Fattr4Numlinks = u32;
-type Fattr4Owner = Utf8strMixed;
-type Fattr4OwnerGroup = Utf8strMixed;
-type Fattr4QuotaAvailHard = u64;
-type Fattr4QuotaAvailSoft = u64;
-type Fattr4QuotaUsed = u64;
-type Fattr4Rawdev = Specdata4;
-type Fattr4SpaceAvail = u64;
-type Fattr4SpaceFree = u64;
-type Fattr4SpaceTotal = u64;
-type Fattr4SpaceUsed = u64;
-type Fattr4System = bool;
-type Fattr4TimeAccess = Nfstime4;
-type Fattr4TimeAccessSet = Settime4;
-type Fattr4TimeBackup = Nfstime4;
-type Fattr4TimeCreate = Nfstime4;
-type Fattr4TimeDelta = Nfstime4;
-type Fattr4TimeMetadata = Nfstime4;
-type Fattr4TimeModify = Nfstime4;
-type Fattr4TimeModifySet = Settime4;
+// type Fattr4Acl<Nfsace4> = Vec<Nfsace4>;
+// type Fattr4Aclsupport = u32;
+// type Fattr4Archive = bool;
+// type Fattr4Cansettime = bool;
+// type Fattr4CaseInsensitive = bool;
+// type Fattr4CasePreserving = bool;
+// type Fattr4ChownRestricted = bool;
+// type Fattr4Fileid = u64;
+// type Fattr4FilesAvail = u64;
+// type Fattr4Filehandle = NfsFh4;
+// type Fattr4FilesFree = u64;
+// type Fattr4FilesTotal = u64;
+// type Fattr4FsLocations = FsLocations4;
+// type Fattr4Hidden = bool;
+// type Fattr4Homogeneous = bool;
+// type Fattr4Maxfilesize = u64;
+// type Fattr4Maxlink = u32;
+// type Fattr4Maxname = u32;
+// type Fattr4Maxread = u64;
+// type Fattr4Maxwrite = u64;
+// type Fattr4Mimetype = AsciiRequired4;
+// type Fattr4Mode = Mode4;
+// type Fattr4MountedOnFileid = u64;
+// type Fattr4NoTrunc = bool;
+// type Fattr4Numlinks = u32;
+// type Fattr4Owner = Utf8strMixed;
+// type Fattr4OwnerGroup = Utf8strMixed;
+// type Fattr4QuotaAvailHard = u64;
+// type Fattr4QuotaAvailSoft = u64;
+// type Fattr4QuotaUsed = u64;
+// type Fattr4Rawdev = Specdata4;
+// type Fattr4SpaceAvail = u64;
+// type Fattr4SpaceFree = u64;
+// type Fattr4SpaceTotal = u64;
+// type Fattr4SpaceUsed = u64;
+// type Fattr4System = bool;
+// type Fattr4TimeAccess = Nfstime4;
+// type Fattr4TimeAccessSet = Settime4;
+// type Fattr4TimeBackup = Nfstime4;
+// type Fattr4TimeCreate = Nfstime4;
+// type Fattr4TimeDelta = Nfstime4;
+// type Fattr4TimeMetadata = Nfstime4;
+// type Fattr4TimeModify = Nfstime4;
+// type Fattr4TimeModifySet = Settime4;
 
 /*
  * Mandatory attributes
@@ -479,10 +480,8 @@ pub const FATTR4_MOUNTED_ON_FILEID: u32 = 55;
  */
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct Fattr4 {
-    #[serde(serialize_with = "write_attrs")]
-    pub attrmask: Vec<FileAttr>,
-    #[serde(serialize_with = "write_attr_values")]
-    pub attr_vals: Vec<FileAttrValue>,
+    pub attrmask: Attrlist4<FileAttr>,
+    pub attr_vals: Attrlist4<FileAttrValue>,
 }
 
 /*
@@ -535,14 +534,14 @@ pub struct NfsClientId4 {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct OpenOwner4 {
     pub clientid: Clientid4,
-    #[serde(with = "serde_bytes_ng")]
+    #[serde(with = "serde_bytes")]
     pub owner: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct LockOwner4 {
     clientid: Clientid4,
-    #[serde(with = "serde_bytes_ng")]
+    #[serde(with = "serde_bytes")]
     owner: Vec<u8>,
 }
 
@@ -721,11 +720,10 @@ pub enum FileAttr {
     MountedOnFileid = 55,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
 pub enum FileAttrValue {
-    #[serde(deserialize_with = "read_attrs", serialize_with = "write_attrs")]
-    SupportedAttrs(Vec<FileAttr>) = 0,
+    SupportedAttrs(Attrlist4<FileAttr>) = 0,
     Type(NfsFtype4) = 1,
     FhExpireType(u32) = 2,
     Change(Changeid4) = 3,
@@ -786,8 +784,7 @@ pub enum FileAttrValue {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Getattr4args {
     /* CURRENT_FH: directory or file */
-    #[serde(deserialize_with = "read_attrs", serialize_with = "write_attrs")]
-    pub attr_request: Vec<FileAttr>,
+    pub attr_request: Attrlist4<FileAttr>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -952,14 +949,14 @@ pub struct Nverify4res {
     status: NfsStat4,
 }
 
-const OPEN4_SHARE_ACCESS_READ: u32 = 0x00000001;
-const OPEN4_SHARE_ACCESS_WRITE: u32 = 0x00000002;
-const OPEN4_SHARE_ACCESS_BOTH: u32 = 0x00000003;
+// const OPEN4_SHARE_ACCESS_READ: u32 = 0x00000001;
+// const OPEN4_SHARE_ACCESS_WRITE: u32 = 0x00000002;
+// const OPEN4_SHARE_ACCESS_BOTH: u32 = 0x00000003;
 
-const OPEN4_SHARE_DENY_NONE: u32 = 0x00000000;
-const OPEN4_SHARE_DENY_READ: u32 = 0x00000001;
-const OPEN4_SHARE_DENY_WRITE: u32 = 0x00000002;
-const OPEN4_SHARE_DENY_BOTH: u32 = 0x00000003;
+// const OPEN4_SHARE_DENY_NONE: u32 = 0x00000000;
+// const OPEN4_SHARE_DENY_READ: u32 = 0x00000001;
+// const OPEN4_SHARE_DENY_WRITE: u32 = 0x00000002;
+// const OPEN4_SHARE_DENY_BOTH: u32 = 0x00000003;
 /*
  * Various definitions for OPEN
  */
@@ -1156,8 +1153,7 @@ pub struct Open4resok {
     /* Result flags */
     pub rflags: u32,
     /* attribute set for create */
-    #[serde(deserialize_with = "read_attrs", serialize_with = "write_attrs")]
-    pub attrset: Vec<FileAttr>,
+    pub attrset: Attrlist4<FileAttr>,
     /* Info on any open
     delegation */
     pub delegation: OpenDelegation4,
@@ -1221,7 +1217,7 @@ pub enum OpenDowngrade4res {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct PutFh4args {
-    #[serde(with = "serde_bytes_ng")]
+    #[serde(with = "serde_bytes")]
     pub object: NfsFh4,
 }
 
@@ -1254,7 +1250,7 @@ pub struct Read4args {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Read4resok {
     pub eof: bool,
-    #[serde(with = "serde_bytes_ng")]
+    #[serde(with = "serde_bytes")]
     pub data: Vec<u8>,
 }
 
@@ -1271,8 +1267,7 @@ pub struct Readdir4args {
     pub cookieverf: [u8; 8],
     pub dircount: Count4,
     pub maxcount: Count4,
-    #[serde(deserialize_with = "read_attrs")]
-    pub attr_request: Vec<FileAttr>,
+    pub attr_request: Attrlist4<FileAttr>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1478,7 +1473,7 @@ pub struct Write4args {
     pub stateid: Stateid4,
     pub offset: Offset4,
     pub stable: StableHow4,
-    #[serde(with = "serde_bytes_ng")]
+    #[serde(with = "serde_bytes")]
     pub data: Vec<u8>,
 }
 
@@ -1707,25 +1702,11 @@ pub struct Compound4res {
 }
 
 /*
- * Remote file service routines
-
-program NFS4_PROGRAM {
-        version NFS_V4 {
-                void
-                        NFSPROC4_NULL(void) = 0;
-
-                Compound4res
-                        NFSPROC4_COMPOUND(Compound4args) = 1;
-
-        } = 4;
-} = 100003;
- */
-/*
  * NFS4 callback procedure definitions and program
  */
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CbGetattr4args {
-    #[serde(with = "serde_bytes_ng")]
+    #[serde(with = "serde_bytes")]
     fh: NfsFh4,
     // #[serde(deserialize_with="read_bitmap", serialize_with="write_bitmap")]
     attr_request: Bitmap4,
@@ -1746,7 +1727,7 @@ pub enum CbGetattr4res {
 pub struct CbRecall4args {
     stateid: Stateid4,
     truncate: bool,
-    #[serde(with = "serde_bytes_ng")]
+    #[serde(with = "serde_bytes")]
     fh: NfsFh4,
 }
 

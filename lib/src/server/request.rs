@@ -1,12 +1,7 @@
-use std::{
-    collections::HashMap,
-    io::{Cursor, Seek, SeekFrom, Write},
-    time::SystemTime,
-};
+use std::{collections::HashMap, time::SystemTime};
 
 use bold_proto::nfs4_proto::NfsStat4;
-use tracing::{debug, error};
-use vfs::VfsPath;
+use tracing::error;
 
 use super::{
     clientmanager::ClientManagerHandle,
@@ -27,8 +22,6 @@ pub struct NfsRequest<'a> {
     pub request_time: u64,
     // locally cached filehandles for this client
     pub filehandle_cache: Option<&'a mut HashMap<Vec<u8>, (SystemTime, Filehandle)>>,
-    // local write cache for this client
-    pub write_cache: Option<&'a mut Cursor<Vec<u8>>>,
     cache_ttl: u64,
 }
 
@@ -40,7 +33,6 @@ impl<'a> NfsRequest<'a> {
         boot_time: u64,
         // cache ttl + filehandle
         filehandle_cache: Option<&'a mut HashMap<Vec<u8>, (SystemTime, Filehandle)>>,
-        write_cache: Option<&'a mut Cursor<Vec<u8>>>,
     ) -> Self {
         let request_time = std::time::UNIX_EPOCH.elapsed().unwrap().as_secs();
 
@@ -52,7 +44,6 @@ impl<'a> NfsRequest<'a> {
             boot_time,
             request_time,
             filehandle_cache,
-            write_cache,
             // set filehandle cache ttl to 10 seconds
             cache_ttl: 10,
         }
@@ -115,44 +106,6 @@ impl<'a> NfsRequest<'a> {
                 }
             }
             None => None,
-        }
-    }
-
-    pub fn write_cache_write(&mut self, offset: u64, data: &[u8], file: &VfsPath) -> u32 {
-        debug!("writing to write cache");
-
-        if let Some(filelike) = self.write_cache.as_mut() {
-            // read in existing data if cache is empty
-            if filelike.get_ref().len() == 0 {
-                let mut file = file.open_file().unwrap();
-                file.read_to_end(filelike.get_mut()).unwrap();
-            }
-            filelike.seek(SeekFrom::Start(offset)).unwrap();
-            filelike.write_all(data).unwrap();
-            return data.len() as u32;
-        }
-        0
-    }
-
-    pub fn write_cache_commit(&mut self, file: &VfsPath) {
-        debug!("commit write cache");
-        if let Some(filelike) = self.write_cache.as_mut() {
-            let mut file = file.append_file().unwrap();
-            let _ = file.seek(SeekFrom::Start(0));
-            let content = filelike.get_ref();
-            let count = file.write(content.as_slice()).unwrap() as u32;
-
-            if count > 0 {
-                file.flush().unwrap();
-            }
-            filelike.get_mut().clear();
-        }
-    }
-
-    pub fn write_cache_reset(&mut self) {
-        debug!("clear write cache");
-        if let Some(filelike) = self.write_cache.as_mut() {
-            filelike.get_mut().clear();
         }
     }
 

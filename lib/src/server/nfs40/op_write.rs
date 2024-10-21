@@ -3,11 +3,7 @@ use std::io::{Seek, SeekFrom, Write};
 use async_trait::async_trait;
 use tracing::{debug, error};
 
-use crate::server::{
-    operation::NfsOperation,
-    request::{NfsRequest},
-    response::NfsOpResponse,
-};
+use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
 
 use bold_proto::nfs4_proto::{NfsResOp4, NfsStat4, StableHow4, Write4args, Write4res, Write4resok};
 
@@ -39,26 +35,24 @@ impl NfsOperation for Write4args {
         };
 
         let mut stable = StableHow4::Unstable4;
-        let mut count: u32 = 0;
+        let mut count: u32 = self.data.len() as u32;
         if self.stable == StableHow4::Unstable4 {
             // write to cache
-            count = request.write_cache_write(self.offset, self.data.as_slice(), &filehandle.file);
+            let write_cache = match filehandle.write_cache {
+                Some(write_cache) => write_cache,
+                None => {
+                    request.drop_filehandle_from_cache(filehandle.id.clone());
+                    request
+                        .file_manager()
+                        .get_write_cache_handle(filehandle)
+                        .await
+                        .unwrap()
+                }
+            };
 
-            // let write_cache = match filehandle.write_cache {
-            //     Some(write_cache) => write_cache,
-            //     None => {
-            //         request.drop_filehandle_from_cache(filehandle.id.clone());
-            //         request
-            //         .file_manager()
-            //         .get_write_cache_handle(filehandle)
-            //         .await
-            //         .unwrap()
-            //     }
-            // };
-
-            // write_cache
-            //     .write_bytes(self.offset, self.data.clone())
-            //     .await;
+            write_cache
+                .write_bytes(self.offset, self.data.clone())
+                .await;
         } else {
             // write to file
             let mut file = filehandle.file.append_file().unwrap();

@@ -87,7 +87,6 @@ impl Encoder<Box<RpcReplyMsg>> for XDRProtoCodec {
             .to_bytes()
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         let buffer_header = u32::to_be_bytes(buffer_message.len() as u32 + (1 << 31));
-        // debug!("Encoding message : {:?}", buffer_message);
         // Reserve space in the buffer.
         dst.reserve(4 + buffer_message.len());
 

@@ -3,7 +3,6 @@
 pub mod server;
 
 use std::collections::HashMap;
-use std::io::Cursor;
 
 use bold_proto::rpc_proto::{AcceptBody, AcceptedReply, OpaqueAuth, ReplyBody};
 use bold_proto::XDRProtoCodec;
@@ -66,7 +65,6 @@ impl NFSServer {
                             // clone NFS server to move into the pipeline and actor connects with shared state
                             // a per-client based filehandle cache
                             let mut filehandle_cache = HashMap::new();
-                            let mut write_cache = Cursor::new(Vec::new());
 
                             loop {
                                 let msg = nfs_transport.next().await;
@@ -79,7 +77,6 @@ impl NFSServer {
                                             file_manager_handle.clone(),
                                             self.boot_time,
                                             Some(&mut filehandle_cache),
-                                            Some(&mut write_cache),
                                         );
                                         // ToDo implement and select correct version of NFS protocol, this services all with minor version 0
                                         let nfs_protocol = self.service_0.as_ref().unwrap();
@@ -236,7 +233,6 @@ mod test_utils {
             client_mananger_handle,
             file_mananger_handle,
             0_u64,
-            None,
             None,
         )
     }

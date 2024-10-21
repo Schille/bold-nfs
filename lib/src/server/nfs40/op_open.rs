@@ -10,7 +10,8 @@ use crate::server::{
 };
 
 use bold_proto::nfs4_proto::{
-    CreateHow4, NfsResOp4, NfsStat4, Open4args, OpenClaim4, OpenFlag4, Stateid4,
+    Attrlist4, CreateHow4, FileAttr, NfsResOp4, NfsStat4, Open4args, OpenClaim4, OpenFlag4,
+    Stateid4,
 };
 
 async fn open_for_reading<'a>(
@@ -62,7 +63,7 @@ async fn open_for_reading<'a>(
             // OPEN4_RESULT_CONFIRM indicates that the client MUST execute an
             // OPEN_CONFIRM operation before using the open file.
             rflags: OPEN4_RESULT_CONFIRM,
-            attrset: Vec::new(),
+            attrset: Attrlist4::<FileAttr>::new(None),
             delegation: OpenDelegation4::None,
         }))),
         status: NfsStat4::Nfs4Ok,
@@ -168,7 +169,7 @@ async fn open_for_writing<'a>(
             // OPEN4_RESULT_CONFIRM indicates that the client MUST execute an
             // OPEN_CONFIRM operation before using the open file.
             rflags: OPEN4_RESULT_CONFIRM,
-            attrset: Vec::new(),
+            attrset: Attrlist4::<FileAttr>::new(None),
             delegation: OpenDelegation4::None,
         }))),
         status: NfsStat4::Nfs4Ok,
