@@ -81,31 +81,47 @@ impl<'a> NfsRequest<'a> {
     }
 
     pub fn cache_filehandle(&mut self, filehandle: Filehandle) {
-        let cache = self.filehandle_cache.as_mut().unwrap();
-        let now: SystemTime = SystemTime::now();
-        cache.insert(filehandle.id.clone(), (now, filehandle));
+        let cache = self.filehandle_cache.as_mut();
+        match cache {
+            None => return,
+            Some(cache) => {
+                let now: SystemTime = SystemTime::now();
+                cache.insert(filehandle.id.clone(), (now, filehandle));
+            }
+        }
     }
 
     pub fn drop_filehandle_from_cache(&mut self, filehandle_id: Vec<u8>) {
-        let cache = self.filehandle_cache.as_mut().unwrap();
-        cache.remove(&filehandle_id);
+        let cache = self.filehandle_cache.as_mut();
+        match cache {
+            None => return,
+            Some(cache) => {
+                cache.remove(&filehandle_id);
+            }
+        }
     }
 
     pub fn get_filehandle_from_cache(&mut self, filehandle_id: Vec<u8>) -> Option<Filehandle> {
-        let cache = self.filehandle_cache.as_ref().unwrap();
-        match cache.get(&filehandle_id) {
-            Some(fh) => {
-                let now: SystemTime = SystemTime::now();
-                let (time, filehandle) = fh;
-                // if cache is expired since 10 seconds, remove it
-                if now.duration_since(*time).unwrap().as_secs() > self.cache_ttl {
-                    self.drop_filehandle_from_cache(filehandle.id.clone());
-                    None
-                } else {
-                    Some(filehandle.clone())
+        // if no cache set, return None
+        let cache = self.filehandle_cache.as_ref();
+        match cache {
+            None => None,
+            Some(cache) => {
+                match cache.get(&filehandle_id) {
+                    Some(fh) => {
+                        let now: SystemTime = SystemTime::now();
+                        let (time, filehandle) = fh;
+                        // if cache is expired since 10 seconds, remove it
+                        if now.duration_since(*time).unwrap().as_secs() > self.cache_ttl {
+                            self.drop_filehandle_from_cache(filehandle.id.clone());
+                            None
+                        } else {
+                            Some(filehandle.clone())
+                        }
+                    }
+                    None => None,
                 }
             }
-            None => None,
         }
     }
 

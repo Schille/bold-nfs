@@ -70,19 +70,12 @@ enum ClientManagerMessage {
     UpsertClient(UpsertClientRequest),
     ConfirmClient(ConfirmClientRequest),
     SetCurrentFilehandle(SetCurrentFilehandleRequest),
-    GetCurrentFilehandle(GetCurrentFilehandleRequest),
     RenewLeases(RenewLeasesRequest),
 }
 
 pub struct SetCurrentFilehandleRequest {
     pub client_addr: String,
     pub filehandle_id: Vec<u8>,
-}
-
-// currently not in use
-pub struct GetCurrentFilehandleRequest {
-    pub client_addr: String,
-    pub respond_to: oneshot::Sender<Option<Vec<u8>>>,
 }
 
 impl ClientManager {
@@ -118,10 +111,6 @@ impl ClientManager {
             ClientManagerMessage::SetCurrentFilehandle(request) => {
                 self.set_current_fh(request.client_addr, request.filehandle_id);
             }
-            ClientManagerMessage::GetCurrentFilehandle(request) => {
-                let result = self.get_current_fh(request.client_addr);
-                let _ = request.respond_to.send(result);
-            }
             ClientManagerMessage::RenewLeases(request) => {
                 let result = self.renew_leases(request.client_id);
                 let _ = request.respond_to.send(result);
@@ -136,10 +125,6 @@ impl ClientManager {
 
     fn set_current_fh(&mut self, client_addr: String, filehandle: Vec<u8>) {
         self.filehandles.insert(client_addr, filehandle);
-    }
-
-    fn get_current_fh(&mut self, client_addr: String) -> Option<Vec<u8>> {
-        self.filehandles.get(&client_addr).cloned()
     }
 
     fn upsert_client(

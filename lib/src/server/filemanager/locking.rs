@@ -3,7 +3,7 @@ use multi_index_map::MultiIndexMap;
 pub type LockingStateDb = MultiIndexLockingStateMap;
 
 #[derive(Debug, Clone)]
-enum LockType {
+pub enum LockType {
     Open,
     ByteRange,
 }

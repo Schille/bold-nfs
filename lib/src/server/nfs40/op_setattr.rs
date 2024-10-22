@@ -8,9 +8,12 @@ use crate::server::{
     response::NfsOpResponse,
 };
 
-use bold_proto::nfs4_proto::{Attrlist4, FileAttrValue, NfsResOp4, SetAttr4args, SetAttr4res};
+use bold_proto::nfs4_proto::{
+    Attrlist4, FileAttr, FileAttrValue, NfsResOp4, SetAttr4args, SetAttr4res,
+};
 
-fn set_attr(filehandle: &Filehandle, attr_vals: &Attrlist4<FileAttrValue>) {
+fn set_attr(filehandle: &Filehandle, attr_vals: &Attrlist4<FileAttrValue>) -> Attrlist4<FileAttr> {
+    let mut attrsset = Attrlist4::<FileAttr>::new(None);
     for attr in attr_vals.iter() {
         match attr {
             FileAttrValue::Size(args) => {
@@ -24,12 +27,14 @@ fn set_attr(filehandle: &Filehandle, attr_vals: &Attrlist4<FileAttrValue>) {
                 let _ = file.rewind();
                 file.write_all(&buf).unwrap();
                 file.flush().unwrap();
+                attrsset.push(FileAttr::Size);
             }
             _ => {
                 error!("Not supported set attr requested for: {:?}", attr);
             }
         }
     }
+    attrsset
 }
 
 #[async_trait]
@@ -43,19 +48,18 @@ impl NfsOperation for SetAttr4args {
         match filehandle {
             None => {
                 error!("None filehandle");
-                return NfsOpResponse {
+                NfsOpResponse {
                     request,
                     result: Some(NfsResOp4::Opsetattr(SetAttr4res {
                         status: NfsStat4::Nfs4errStale,
-                        attrsset: Vec::new(),
+                        attrsset: Attrlist4::<FileAttr>::new(None),
                     })),
                     status: NfsStat4::Nfs4errStale,
-                };
+                }
             }
             Some(filehandle) => {
-                if !self.obj_attributes.attrmask.is_empty() {
-                    // TODO implement set attr, check
-                    set_attr(&filehandle, &self.obj_attributes.attr_vals);
+                let attrsset = if !self.obj_attributes.attrmask.is_empty() {
+                    let attrsset = set_attr(&filehandle, &self.obj_attributes.attr_vals);
                     request.drop_filehandle_from_cache(filehandle.id.clone());
 
                     request
@@ -74,13 +78,16 @@ impl NfsOperation for SetAttr4args {
                             };
                         }
                     }
-                }
+                    attrsset
+                } else {
+                    Attrlist4::<FileAttr>::new(None)
+                };
 
                 NfsOpResponse {
                     request,
                     result: Some(NfsResOp4::Opsetattr(SetAttr4res {
                         status: NfsStat4::Nfs4Ok,
-                        attrsset: Vec::new(),
+                        attrsset,
                     })),
                     status: NfsStat4::Nfs4Ok,
                 }

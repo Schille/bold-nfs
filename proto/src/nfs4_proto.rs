@@ -8,6 +8,7 @@ use serde_derive::{Deserialize, Serialize};
 
 /*
  * This code was derived from RFC 7531.
+ * Yet, it has been modified to fit the needs of Serde and Bold.
  */
 
 /*
@@ -16,27 +17,11 @@ use serde_derive::{Deserialize, Serialize};
  */
 
 /*
- * Basic types for RFC 1832 data type definitions
- */
-/*
- * type int          int32_t;
- * type unsigned int u32;
- * type hyper                i64;
- * type unsigned hyper       u64;
- */
-
-/*
  * Sizes
  */
-// const NFS4_FHSIZE: u32 = 128;
-// const NFS4_VERIFIER_SIZE: u32 = 8;
-const NFS4_OTHER_SIZE: u32 = 12;
+const NFS4_VERIFIER_SIZE: usize = 8;
+const NFS4_OTHER_SIZE: usize = 12;
 // const NFS4_OPAQUE_LIMIT: u32 = 1024;
-
-// const NFS4_INT64_MAX: i64 = 0x7fffffffffffffff;
-// const NFS4_UINT64_MAX: u64 = 0xffffffffffffffff;
-// const NFS4_INT32_MAX: i32 = 0x7fffffff;
-// const NFS4_UINT32_MAX: u32 = 0xffffffff;
 
 /*
  * File types
@@ -138,14 +123,12 @@ pub struct FileAttrFlags {}
  */
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Attrlist4<T>(pub Vec<T>);
-type Bitmap4 = Vec<u32>;
 type Changeid4 = u64;
 type Clientid4 = u64;
 type Count4 = u32;
 type Length4 = u64;
 // type Mode4 = u32;
 type NfsCookie4 = u64;
-// type NfsFh4 = [u8; NFS4_FHSIZE as usize];
 type NfsFh4 = Vec<u8>;
 pub type NfsLease4 = u32;
 type Offset4 = u64;
@@ -353,64 +336,6 @@ pub const FH4_VOLATILE_ANY: u32 = 0x00000002;
 pub const FH4_VOL_MIGRATION: u32 = 0x00000004;
 pub const FH4_VOL_RENAME: u32 = 0x00000008;
 
-// type Fattr4SupportedAttrs = Bitmap4;
-// type Fattr4Type = NfsFtype4;
-// type Fattr4FhExpireType = u32;
-// type Fattr4Change = Changeid4;
-// type Fattr4Size = u64;
-// type Fattr4LinkSupport = bool;
-// type Fattr4SymlinkSupport = bool;
-// type Fattr4NamedAttr = bool;
-// type Fattr4Fsid = Fsid4;
-// type Fattr4UniqueHandles = bool;
-// type Fattr4LeaseTime = NfsLease4;
-// type Fattr4RdattrError = NfsStat4;
-
-// type Fattr4Acl<Nfsace4> = Vec<Nfsace4>;
-// type Fattr4Aclsupport = u32;
-// type Fattr4Archive = bool;
-// type Fattr4Cansettime = bool;
-// type Fattr4CaseInsensitive = bool;
-// type Fattr4CasePreserving = bool;
-// type Fattr4ChownRestricted = bool;
-// type Fattr4Fileid = u64;
-// type Fattr4FilesAvail = u64;
-// type Fattr4Filehandle = NfsFh4;
-// type Fattr4FilesFree = u64;
-// type Fattr4FilesTotal = u64;
-// type Fattr4FsLocations = FsLocations4;
-// type Fattr4Hidden = bool;
-// type Fattr4Homogeneous = bool;
-// type Fattr4Maxfilesize = u64;
-// type Fattr4Maxlink = u32;
-// type Fattr4Maxname = u32;
-// type Fattr4Maxread = u64;
-// type Fattr4Maxwrite = u64;
-// type Fattr4Mimetype = AsciiRequired4;
-// type Fattr4Mode = Mode4;
-// type Fattr4MountedOnFileid = u64;
-// type Fattr4NoTrunc = bool;
-// type Fattr4Numlinks = u32;
-// type Fattr4Owner = Utf8strMixed;
-// type Fattr4OwnerGroup = Utf8strMixed;
-// type Fattr4QuotaAvailHard = u64;
-// type Fattr4QuotaAvailSoft = u64;
-// type Fattr4QuotaUsed = u64;
-// type Fattr4Rawdev = Specdata4;
-// type Fattr4SpaceAvail = u64;
-// type Fattr4SpaceFree = u64;
-// type Fattr4SpaceTotal = u64;
-// type Fattr4SpaceUsed = u64;
-// type Fattr4System = bool;
-// type Fattr4TimeAccess = Nfstime4;
-// type Fattr4TimeAccessSet = Settime4;
-// type Fattr4TimeBackup = Nfstime4;
-// type Fattr4TimeCreate = Nfstime4;
-// type Fattr4TimeDelta = Nfstime4;
-// type Fattr4TimeMetadata = Nfstime4;
-// type Fattr4TimeModify = Nfstime4;
-// type Fattr4TimeModifySet = Settime4;
-
 /*
  * Mandatory attributes
  */
@@ -518,7 +443,7 @@ pub struct CbClient4 {
 pub struct Stateid4 {
     pub seqid: u32,
     #[serde(with = "serde_xdr::opaque_data::fixed_length")]
-    pub other: [u8; NFS4_OTHER_SIZE as usize],
+    pub other: [u8; NFS4_OTHER_SIZE],
 }
 
 /*
@@ -527,7 +452,7 @@ pub struct Stateid4 {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct NfsClientId4 {
     #[serde(with = "serde_xdr::opaque_data::fixed_length")]
-    pub verifier: [u8; 8],
+    pub verifier: [u8; NFS4_VERIFIER_SIZE],
     pub id: String,
 }
 
@@ -629,7 +554,7 @@ pub struct Create4args {
 pub struct Create4resok {
     cinfo: ChangeInfo4,
     // #[serde(deserialize_with="read_bitmap", serialize_with="write_bitmap")]
-    attrset: Bitmap4, /* attributes set */
+    attrset: Attrlist4<FileAttr>, /* attributes set */
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1412,7 +1337,7 @@ pub struct SetAttr4args {
 pub struct SetAttr4res {
     pub status: NfsStat4,
     // #[serde(deserialize_with="read_bitmap", serialize_with="write_bitmap")]
-    pub attrsset: Bitmap4,
+    pub attrsset: Attrlist4<FileAttr>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1709,7 +1634,7 @@ pub struct CbGetattr4args {
     #[serde(with = "serde_bytes")]
     fh: NfsFh4,
     // #[serde(deserialize_with="read_bitmap", serialize_with="write_bitmap")]
-    attr_request: Bitmap4,
+    attr_request: Attrlist4<FileAttr>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
