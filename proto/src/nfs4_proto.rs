@@ -535,26 +535,33 @@ pub enum Commit4res {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-
+#[repr(u32)]
 pub enum Createtype4 {
-    Linkdata(Linktext4),
-    Devdata(Specdata4),
-    /* server should return NFS4ERR_BADTYPE */
+    Nf4Undef = 0,          /* undefined */
+    Nf4reg = 1,            /* Regular File */
+    Nf4dir = 2,            /* Directory */
+    Nf4blk = 3,            /* Special File - block device */
+    Nf4chr(Specdata4) = 4, /* Special File - character device */
+    Nf4lnk(Linktext4) = 5, /* Symbolic Link */
+    Nf4sock = 6,           /* Special File - socket */
+    Nf4fifo = 7,           /* Special File - fifo */
+    Nf4attrdir = 8,        /* Attribute Directory */
+    Nf4namedattr = 9,      /* Named Attribute */
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Create4args {
     /* CURRENT_FH: directory for creation */
-    objtype: Createtype4,
-    objname: Component4,
-    createattrs: Fattr4,
+    pub objtype: Createtype4,
+    pub objname: Component4,
+    pub createattrs: Fattr4,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Create4resok {
-    cinfo: ChangeInfo4,
+    pub cinfo: ChangeInfo4,
     // #[serde(deserialize_with="read_bitmap", serialize_with="write_bitmap")]
-    attrset: Attrlist4<FileAttr>, /* attributes set */
+    pub attrset: Attrlist4<FileAttr>, /* attributes set */
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -680,7 +687,7 @@ pub enum FileAttrValue {
     Maxname = 29,
     Maxread = 30,
     Maxwrite = 31,
-    Mimetype = 32,
+    Mimetype(String) = 32,
     Mode(u32) = 33,
     NoTrunc = 34,
     Numlinks(u32) = 35,

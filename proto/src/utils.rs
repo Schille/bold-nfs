@@ -9,7 +9,7 @@ use serde::{
     ser::{SerializeSeq, SerializeStruct},
     Deserialize, Serialize, Serializer,
 };
-use tracing::debug;
+use tracing::{debug, error};
 
 use crate::nfs4_proto::Compound4args;
 
@@ -201,7 +201,10 @@ impl FattrRaw {
                     attr_vals.push(FileAttrValue::Mode(ele));
                     offset += idx + 4;
                 }
-                _ => todo!(),
+                _ => {
+                    error!("Cannot deserialize {:?}", attr);
+                    todo!()
+                }
             }
         }
         attr_vals

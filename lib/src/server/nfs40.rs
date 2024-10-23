@@ -6,6 +6,7 @@ use bold_proto::{nfs4_proto::*, rpc_proto::*};
 mod op_access;
 mod op_close;
 mod op_commit;
+mod op_create;
 mod op_getattr;
 mod op_lookup;
 mod op_open;
@@ -142,7 +143,8 @@ impl NfsProtoImpl for NFS40Server {
                         NfsArgOp::Opwrite(args) => args.execute(request).await,
 
                         NfsArgOp::Opcommit(args) => args.execute(request).await,
-                        NfsArgOp::Opcreate(_) => self.operation_not_supported(request),
+                        NfsArgOp::Opcreate(args) => args.execute(request).await,
+
                         NfsArgOp::Opdelegpurge(_) => self.operation_not_supported(request),
                         NfsArgOp::Opdelegreturn(_) => self.operation_not_supported(request),
 
