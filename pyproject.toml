@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "bold-tests"
+version = "0.1.0"
+description = ""
+authors = ["Michael Schilonka <michael@schilonka.de>"]
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.10"
+pytest = "^8.3.3"
+pytest-benchmark = "^4.0.0"
+pygal = "^3.0.5"
+pygaljs = "^1.0.2"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

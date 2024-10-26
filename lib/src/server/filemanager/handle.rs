@@ -413,6 +413,32 @@ impl FileManagerHandle {
         Some(Box::new((answer_attrs, attrs)))
     }
 
+
+    pub fn set_attr(&self, filehandle: &Filehandle, attr_vals: &Attrlist4<FileAttrValue>) -> Attrlist4<FileAttr> {
+        let mut attrsset = Attrlist4::<FileAttr>::new(None);
+        for attr in attr_vals.iter() {
+            match attr {
+                FileAttrValue::Size(args) => {
+                    debug!("Set size to: {:?}", args);
+                    let mut buf = vec![0_u8; *args as usize];
+                    let mut file = filehandle.file.open_file().unwrap();
+                    let _ = file.rewind();
+                    file.read_exact(&mut buf).unwrap();
+    
+                    let mut file = filehandle.file.append_file().unwrap();
+                    let _ = file.rewind();
+                    file.write_all(&buf).unwrap();
+                    file.flush().unwrap();
+                    attrsset.push(FileAttr::Size);
+                }
+                _ => {
+                    debug!("Not supported set attr requested for: {:?}", attr);
+                }
+            }
+        }
+        attrsset
+    }
+
     pub fn attr_lease_time(&self) -> NfsLease4 {
         self.lease_time
     }
