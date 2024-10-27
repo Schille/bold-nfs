@@ -1,3 +1,4 @@
+use bold_proto::nfs4_proto::NfsFh4;
 use multi_index_map::MultiIndexMap;
 
 pub type LockingStateDb = MultiIndexLockingStateMap;
@@ -33,7 +34,7 @@ pub struct LockingState {
     // filehandle:
     // The filehandle of the file on which the lock is being requested.
     #[multi_index(hashed_non_unique)]
-    pub filehandle_id: Vec<u8>,
+    pub filehandle_id: NfsFh4,
     // start:
     // The starting offset of the lock. (byte-range locks only)
     pub start: Option<u64>,
@@ -56,7 +57,7 @@ pub struct LockingState {
 
 impl LockingState {
     pub fn new_shared_reservation(
-        filehandle_id: Vec<u8>,
+        filehandle_id: NfsFh4,
         stateid: [u8; 12],
         client_id: u64,
         owner: Vec<u8>,

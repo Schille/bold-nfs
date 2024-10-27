@@ -11,6 +11,7 @@ use super::{
     caching::run_file_write_cache, caching::WriteCache, filehandle::Filehandle, run_file_manager,
     FileManager,
 };
+use crate::server::filemanager::NfsFh4;
 
 pub enum FileManagerMessage {
     GetRootFilehandle(GetRootFilehandleRequest),
@@ -27,19 +28,19 @@ pub enum FileManagerMessage {
 }
 
 pub struct GetRootFilehandleRequest {
-    pub respond_to: oneshot::Sender<Box<Filehandle>>,
+    pub respond_to: oneshot::Sender<Filehandle>,
 }
 
 pub struct GetFilehandleRequest {
     pub path: Option<String>,
-    pub filehandle: Option<Vec<u8>>,
-    pub respond_to: oneshot::Sender<Option<Box<Filehandle>>>,
+    pub filehandle: Option<NfsFh4>,
+    pub respond_to: oneshot::Sender<Option<Filehandle>>,
 }
 
 pub struct GetFilehandleAttrsRequest {
-    pub filehandle_id: Vec<u8>,
+    pub filehandle_id: NfsFh4,
     pub attrs_request: Vec<FileAttr>,
-    pub respond_to: oneshot::Sender<Option<Box<(Vec<FileAttr>, Vec<FileAttrValue>)>>>,
+    pub respond_to: oneshot::Sender<Option<(Vec<FileAttr>, Vec<FileAttrValue>)>>,
 }
 
 pub struct CreateFileRequest {
@@ -49,7 +50,7 @@ pub struct CreateFileRequest {
     pub share_access: u32,
     pub share_deny: u32,
     pub verifier: Option<[u8; 8]>,
-    pub respond_to: oneshot::Sender<Option<Box<Filehandle>>>,
+    pub respond_to: oneshot::Sender<Option<Filehandle>>,
 }
 
 pub struct RemoveFileRequest {
@@ -58,7 +59,7 @@ pub struct RemoveFileRequest {
 }
 
 pub struct TouchFileRequest {
-    pub id: Vec<u8>,
+    pub id: NfsFh4,
 }
 
 pub struct WriteCacheHandleRequest {
@@ -68,7 +69,7 @@ pub struct WriteCacheHandleRequest {
 }
 
 pub struct DropCacheHandleRequest {
-    pub filehandle_id: Vec<u8>,
+    pub filehandle_id: NfsFh4,
 }
 
 #[derive(Debug, Clone)]
@@ -104,8 +105,8 @@ impl FileManagerHandle {
     async fn send_filehandle_request(
         &self,
         path: Option<String>,
-        filehandle: Option<Vec<u8>>,
-    ) -> Result<Box<Filehandle>, FileManagerError> {
+        filehandle: Option<NfsFh4>,
+    ) -> Result<Filehandle, FileManagerError> {
         let filehandle_set = filehandle.is_some();
         let (tx, rx) = oneshot::channel();
         let req = GetFilehandleRequest {
@@ -151,29 +152,26 @@ impl FileManagerHandle {
         }
     }
 
-    pub async fn get_root_filehandle(&self) -> Result<Box<Filehandle>, FileManagerError> {
+    pub async fn get_root_filehandle(&self) -> Result<Filehandle, FileManagerError> {
         self.send_filehandle_request(None, None).await
     }
 
-    pub async fn get_filehandle_for_id(
-        &self,
-        id: Vec<u8>,
-    ) -> Result<Box<Filehandle>, FileManagerError> {
+    pub async fn get_filehandle_for_id(&self, id: NfsFh4) -> Result<Filehandle, FileManagerError> {
         self.send_filehandle_request(None, Some(id)).await
     }
 
     pub async fn get_filehandle_for_path(
         &self,
         path: String,
-    ) -> Result<Box<Filehandle>, FileManagerError> {
+    ) -> Result<Filehandle, FileManagerError> {
         self.send_filehandle_request(Some(path), None).await
     }
 
     pub async fn get_filehandle_attrs(
         &self,
-        filehandle_id: Vec<u8>,
+        filehandle_id: NfsFh4,
         attrs_request: Vec<FileAttr>,
-    ) -> Result<Box<(Vec<FileAttr>, Vec<FileAttrValue>)>, FileManagerError> {
+    ) -> Result<(Vec<FileAttr>, Vec<FileAttrValue>), FileManagerError> {
         let (tx, rx) = oneshot::channel();
         let req = GetFilehandleAttrsRequest {
             filehandle_id,
@@ -207,7 +205,7 @@ impl FileManagerHandle {
         access: u32,
         deny: u32,
         verifier: Option<[u8; 8]>,
-    ) -> Result<Box<Filehandle>, FileManagerError> {
+    ) -> Result<Filehandle, FileManagerError> {
         let (tx, rx) = oneshot::channel();
         let req = CreateFileRequest {
             path,
@@ -255,7 +253,7 @@ impl FileManagerHandle {
         }
     }
 
-    pub async fn touch_file(&self, id: Vec<u8>) {
+    pub async fn touch_file(&self, id: NfsFh4) {
         self.sender
             .send(FileManagerMessage::TouchFile(TouchFileRequest { id }))
             .await
@@ -292,7 +290,7 @@ impl FileManagerHandle {
         }
     }
 
-    pub async fn drop_write_cache_handle(&self, filehandle_id: Vec<u8>) {
+    pub async fn drop_write_cache_handle(&self, filehandle_id: NfsFh4) {
         self.sender
             .send(FileManagerMessage::DropWriteCacheHandle(
                 DropCacheHandleRequest { filehandle_id },
@@ -305,7 +303,7 @@ impl FileManagerHandle {
         &mut self,
         attr_request: &Vec<FileAttr>,
         filehandle: &Filehandle,
-    ) -> Option<Box<(Attrlist4<FileAttr>, Attrlist4<FileAttrValue>)>> {
+    ) -> Option<(Attrlist4<FileAttr>, Attrlist4<FileAttrValue>)> {
         let mut answer_attrs = Attrlist4::<FileAttr>::new(None);
         let mut attrs = Attrlist4::<FileAttrValue>::new(None);
 
@@ -410,11 +408,14 @@ impl FileManagerHandle {
                 _ => {}
             }
         }
-        Some(Box::new((answer_attrs, attrs)))
+        Some((answer_attrs, attrs))
     }
 
-
-    pub fn set_attr(&self, filehandle: &Filehandle, attr_vals: &Attrlist4<FileAttrValue>) -> Attrlist4<FileAttr> {
+    pub fn set_attr(
+        &self,
+        filehandle: &Filehandle,
+        attr_vals: &Attrlist4<FileAttrValue>,
+    ) -> Attrlist4<FileAttr> {
         let mut attrsset = Attrlist4::<FileAttr>::new(None);
         for attr in attr_vals.iter() {
             match attr {
@@ -424,7 +425,7 @@ impl FileManagerHandle {
                     let mut file = filehandle.file.open_file().unwrap();
                     let _ = file.rewind();
                     file.read_exact(&mut buf).unwrap();
-    
+
                     let mut file = filehandle.file.append_file().unwrap();
                     let _ = file.rewind();
                     file.write_all(&buf).unwrap();

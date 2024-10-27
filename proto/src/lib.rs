@@ -6,7 +6,7 @@ use bytes::{Buf, BytesMut};
 use serde_xdr::{from_reader, to_writer, CompatDeserializationError};
 use std::io::Cursor;
 use tokio_util::codec::{Decoder, Encoder};
-use tracing::trace;
+// use tracing::trace;
 
 use self::rpc_proto::{RpcCallMsg, RpcReplyMsg};
 
@@ -66,11 +66,12 @@ impl Decoder for XDRProtoCodec {
             src.advance(4 + length);
 
             message_data.extend_from_slice(&fragment[..]);
-            trace!(
-                length = length,
-                is_last = is_last,
-                "Finishing Reading fragment"
-            );
+            // TODO remove due to performance reasons
+            // trace!(
+            //     length = length,
+            //     is_last = is_last,
+            //     "Finishing Reading fragment"
+            // );
         }
 
         RpcCallMsg::from_bytes(message_data)

@@ -33,20 +33,20 @@ impl NfsOperation for Commit4args {
 
         // unlock write cache & write file
 
-        let write_cache = request
+        let write_cache = &request
             .file_manager()
             .get_write_cache_handle(filehandle.clone())
             .await
             .unwrap();
         // // TODO: this commits the whole cache, we should only commit the data up to the offset
         write_cache.commit().await;
-        request.drop_filehandle_from_cache(filehandle.id.clone());
 
         request
             .file_manager()
             .touch_file(filehandle.id.clone())
             .await;
 
+        request.drop_filehandle_from_cache(filehandle.id.clone());
         let boot_time = request.boot_time;
         NfsOpResponse {
             request,

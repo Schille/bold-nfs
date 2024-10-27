@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use bold_proto::nfs4_proto::{
-    Attrlist4, FileAttr, FileAttrValue, NfsLease4, NfsStat4, ACL4_SUPPORT_ALLOW_ACL,
+    Attrlist4, FileAttr, FileAttrValue, NfsFh4, NfsLease4, NfsStat4, ACL4_SUPPORT_ALLOW_ACL,
     FH4_VOLATILE_ANY, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR,
 };
 
@@ -30,7 +30,7 @@ pub struct FileManager {
     // database for all managed filehandles
     pub fhdb: FilehandleDb,
     // this field trackes a sequence number for filehandles
-    pub next_fh_id: u64,
+    pub next_fh_id: u128,
     // database for all managed locking states
     pub lockdb: LockingStateDb,
     // this field trackes a sequence number for stateids
@@ -38,7 +38,7 @@ pub struct FileManager {
     pub boot_time: u64,
     // endpoint for incoming messages
     pub receiver: mpsc::Receiver<FileManagerMessage>,
-    pub cachedb: HashMap<Vec<u8>, WriteCacheHandle>,
+    pub cachedb: HashMap<NfsFh4, WriteCacheHandle>,
 }
 
 impl FileManager {
@@ -76,7 +76,7 @@ impl FileManager {
             FileManagerMessage::GetRootFilehandle(req) => {
                 let fh_wo_locks = self.root_fh();
                 let fh = self.attach_locks(fh_wo_locks);
-                req.respond_to.send(Box::new(fh)).unwrap();
+                req.respond_to.send(fh).unwrap();
             }
             FileManagerMessage::GetFilehandle(req) => {
                 if req.filehandle.is_some() {
@@ -84,7 +84,7 @@ impl FileManager {
                     match fh {
                         Some(fh_wo_locks) => {
                             let fh = self.attach_locks(fh_wo_locks);
-                            req.respond_to.send(Some(Box::new(fh))).unwrap();
+                            req.respond_to.send(Some(fh)).unwrap();
                         }
                         None => {
                             debug!("Filehandle not found");
@@ -97,7 +97,7 @@ impl FileManager {
                     if path.exists().unwrap() {
                         let fh_wo_locks = self.get_filehandle(&path);
                         let fh = self.attach_locks(fh_wo_locks);
-                        req.respond_to.send(Some(Box::new(fh))).unwrap();
+                        req.respond_to.send(Some(fh)).unwrap();
                     } else {
                         debug!("File not found {:?}", path);
                         req.respond_to.send(None).unwrap();
@@ -105,7 +105,7 @@ impl FileManager {
                 } else {
                     let fh_wo_locks = self.root_fh();
                     let fh = self.attach_locks(fh_wo_locks);
-                    req.respond_to.send(Some(Box::new(fh))).unwrap();
+                    req.respond_to.send(Some(fh)).unwrap();
                 }
             }
             FileManagerMessage::GetFilehandleAttrs(req) => {
@@ -184,7 +184,7 @@ impl FileManager {
                 req.respond_to.send(handle).unwrap();
             }
             FileManagerMessage::DropWriteCacheHandle(req) => {
-                self.drop_cache_handle(req.filehandle_id);
+                self.drop_cache_handle(&req.filehandle_id);
             }
             FileManagerMessage::UpdateFilehandle(req) => {
                 self.update_filehandle(req);
@@ -214,7 +214,7 @@ impl FileManager {
         self.fhdb.insert(filehandle);
     }
 
-    fn create_file(&mut self, request_file: &VfsPath) -> Option<Box<Filehandle>> {
+    fn create_file(&mut self, request_file: &VfsPath) -> Option<Filehandle> {
         let newfile = match request_file.create_file() {
             Ok(_) => {
                 debug!("File created successfully");
@@ -237,7 +237,7 @@ impl FileManager {
         let parent_filehandle = self.get_filehandle_by_path(&path).unwrap();
         self.touch_filehandle(parent_filehandle);
 
-        Some(Box::new(fh))
+        Some(fh)
     }
 
     fn get_new_lockingstate_id(&mut self) -> [u8; 12] {
@@ -248,7 +248,7 @@ impl FileManager {
         id.try_into().unwrap()
     }
 
-    fn get_filehandle_id(&mut self, file: &VfsPath) -> Vec<u8> {
+    fn get_filehandle_id(&mut self, file: &VfsPath) -> NfsFh4 {
         // if there is already a filehandle for this path, return it
         let mut path = file.as_str().to_string();
         if path.is_empty() {
@@ -260,10 +260,6 @@ impl FileManager {
             return exists.id;
         }
 
-        if path == "/" {
-            // root gets a special filehandle that always constructs the same way
-            return vec![128_u8];
-        }
         // https://tools.ietf.org/html/rfc7530#section-4.2.3
         // this implements a "Volatile Filehandle"
         let mut id = vec![128_u8];
@@ -273,10 +269,10 @@ impl FileManager {
 
         debug!("created new filehandle id: {:?}", id);
         self.next_fh_id += 1;
-        id
+        id.try_into().expect("Cannot convert Vec to NfsFh4")
     }
 
-    fn get_filehandle_by_id(&mut self, id: &Vec<u8>) -> Option<Filehandle> {
+    fn get_filehandle_by_id(&mut self, id: &NfsFh4) -> Option<Filehandle> {
         let fh = self.fhdb.get_by_id(id);
         if let Some(fh) = fh {
             if fh.file.exists().unwrap() {
@@ -335,11 +331,11 @@ impl FileManager {
         }
     }
 
-    pub fn drop_cache_handle(&mut self, filehandle_id: Vec<u8>) {
-        if self.cachedb.contains_key(&filehandle_id) {
-            self.cachedb.remove(&filehandle_id);
+    pub fn drop_cache_handle(&mut self, filehandle_id: &NfsFh4) {
+        if self.cachedb.contains_key(filehandle_id) {
+            self.cachedb.remove(filehandle_id);
         }
-        let filehandle = self.get_filehandle_by_id(&filehandle_id);
+        let filehandle = self.get_filehandle_by_id(filehandle_id);
         if let Some(mut filehandle) = filehandle {
             filehandle.write_cache = None;
             self.update_filehandle(filehandle);
@@ -349,8 +345,8 @@ impl FileManager {
     pub fn filehandle_attrs(
         &mut self,
         attr_request: &Vec<FileAttr>,
-        filehandle_id: &Vec<u8>,
-    ) -> Option<Box<(Vec<FileAttr>, Vec<FileAttrValue>)>> {
+        filehandle_id: &NfsFh4,
+    ) -> Option<(Vec<FileAttr>, Vec<FileAttrValue>)> {
         let mut answer_attrs = Vec::new();
         let mut attrs = Vec::new();
         let fh = self.get_filehandle_by_id(filehandle_id);
@@ -460,7 +456,7 @@ impl FileManager {
                         _ => {}
                     }
                 }
-                Some(Box::new((answer_attrs, attrs)))
+                Some((answer_attrs, attrs))
             }
         }
     }

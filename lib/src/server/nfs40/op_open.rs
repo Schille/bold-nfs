@@ -14,12 +14,9 @@ use bold_proto::nfs4_proto::{
     Stateid4,
 };
 
-async fn open_for_reading<'a>(
-    filehandle: Filehandle,
-    file: &String,
-    mut request: NfsRequest<'a>,
-) -> NfsOpResponse<'a> {
-    let path = filehandle.path;
+async fn open_for_reading<'a>(file: &String, mut request: NfsRequest<'a>) -> NfsOpResponse<'a> {
+    let filehandle = request.current_filehandle();
+    let path = &filehandle.unwrap().path;
 
     let fh_path = {
         if path == "/" {
@@ -46,7 +43,7 @@ async fn open_for_reading<'a>(
         }
     };
 
-    request.set_filehandle(*filehandle);
+    request.set_filehandle(filehandle);
 
     NfsOpResponse {
         request,
@@ -72,12 +69,12 @@ async fn open_for_reading<'a>(
 
 async fn open_for_writing<'a>(
     args: &Open4args,
-    filehandle: Filehandle,
+    filehandle: &Filehandle,
     file: &String,
     how: &CreateHow4,
     mut request: NfsRequest<'a>,
 ) -> NfsOpResponse<'a> {
-    let path = filehandle.path;
+    let path = &filehandle.path;
 
     let fh_path = {
         if path == "/" {
@@ -150,7 +147,7 @@ async fn open_for_writing<'a>(
         }
     };
 
-    request.set_filehandle(*filehandle.clone());
+    request.set_filehandle(filehandle.clone());
     // we expect this filehandle to have one lock (for the shared reservation)
     let lock = &filehandle.locks[0];
 
@@ -240,11 +237,11 @@ impl NfsOperation for Open4args {
         match &self.openhow {
             OpenFlag4::Open4Nocreate => {
                 // Open a file for reading
-                open_for_reading(filehandle, file, request).await
+                open_for_reading(file, request).await
             }
             OpenFlag4::How(how) => {
                 // Open a file for writing
-                open_for_writing(self, filehandle, file, how, request).await
+                open_for_writing(self, &filehandle.clone(), file, how, request).await
             }
         }
     }

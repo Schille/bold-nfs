@@ -33,7 +33,7 @@ impl NfsOperation for Getattr4args {
                     .filehandle_attrs(&self.attr_request, &filehandle);
 
                 let (answer_attrs, attrs) = match resp {
-                    Some(inner) => *inner,
+                    Some(inner) => inner,
                     None => {
                         return NfsOpResponse {
                             request,

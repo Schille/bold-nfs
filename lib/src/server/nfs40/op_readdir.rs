@@ -108,9 +108,9 @@ impl NfsOperation for Readdir4args {
         for (cookie, fh) in filehandles.into_iter().rev() {
             let resp = request
                 .file_manager()
-                .filehandle_attrs(&self.attr_request, fh.as_ref());
+                .filehandle_attrs(&self.attr_request, &fh);
             let (answer_attrs, attrs) = match resp {
-                Some(inner) => *inner,
+                Some(inner) => inner,
                 None => {
                     return NfsOpResponse {
                         request,

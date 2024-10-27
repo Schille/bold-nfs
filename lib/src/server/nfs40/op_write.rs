@@ -38,15 +38,16 @@ impl NfsOperation for Write4args {
         let mut count: u32 = self.data.len() as u32;
         if self.stable == StableHow4::Unstable4 {
             // write to cache
-            let write_cache = match filehandle.write_cache {
+            let write_cache = match &filehandle.write_cache {
                 Some(write_cache) => write_cache,
                 None => {
-                    request.drop_filehandle_from_cache(filehandle.id.clone());
-                    request
+                    let write_cache = request
                         .file_manager()
-                        .get_write_cache_handle(filehandle)
+                        .get_write_cache_handle(filehandle.clone())
                         .await
-                        .unwrap()
+                        .unwrap();
+                    request.drop_filehandle_from_cache(filehandle.id.clone());
+                    &write_cache.clone()
                 }
             };
 

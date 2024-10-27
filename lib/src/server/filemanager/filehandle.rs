@@ -7,7 +7,9 @@ use multi_index_map::MultiIndexMap;
 use tracing::debug;
 use vfs::VfsPath;
 
-use bold_proto::nfs4_proto::{Fsid4, NfsFtype4, Nfstime4, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR};
+use bold_proto::nfs4_proto::{
+    Fsid4, NfsFh4, NfsFtype4, Nfstime4, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR,
+};
 
 use super::{handle::WriteCacheHandle, locking::LockingState};
 
@@ -17,7 +19,7 @@ pub type FilehandleDb = MultiIndexFilehandleMap;
 #[multi_index_derive(Debug, Clone)]
 pub struct Filehandle {
     #[multi_index(hashed_unique)]
-    pub id: Vec<u8>,
+    pub id: NfsFh4,
     pub file: VfsPath,
     // path:
     // the full path of the file including filename
@@ -79,7 +81,7 @@ pub struct Filehandle {
 }
 
 impl Filehandle {
-    pub fn new(file: VfsPath, id: Vec<u8>, major: u64, minor: u64, version: u64) -> Self {
+    pub fn new(file: VfsPath, id: NfsFh4, major: u64, minor: u64, version: u64) -> Self {
         let init_time = Self::attr_time_access();
         let mut path = file.as_str().to_string();
         if path.is_empty() {

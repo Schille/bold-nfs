@@ -15,7 +15,7 @@ impl NfsOperation for OpenConfirm4args {
             self, request
         );
         // we expect filehandle to have one lock (for the shared reservation)
-        let lock = &request.current_filehandle().unwrap().locks[0];
+        let lock = request.current_filehandle().unwrap().locks[0].clone();
         // TODO check if the stateid is correct
         NfsOpResponse {
             request,

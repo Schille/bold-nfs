@@ -58,7 +58,7 @@ impl NfsOperation for Lookup4args {
         };
 
         // lookup sets the current filehandle to the looked up filehandle
-        request.set_filehandle(*filehandle);
+        request.set_filehandle(filehandle);
 
         NfsOpResponse {
             request,

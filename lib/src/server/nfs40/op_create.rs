@@ -45,9 +45,9 @@ impl NfsOperation for Create4args {
             // LinkData(vec) => todo!(),
             Createtype4::Nf4dir => {
                 let current_dir = if filehandle.file.is_file().unwrap() {
-                    filehandle.file.parent()
+                    &filehandle.file.parent()
                 } else {
-                    filehandle.file
+                    &filehandle.file
                 };
                 let new_dir = current_dir.join(self.objname.clone()).unwrap();
                 let _ = new_dir.create_dir();
@@ -70,7 +70,7 @@ impl NfsOperation for Create4args {
                         };
                     }
                 };
-                request.set_filehandle(*filehandle.clone());
+                request.set_filehandle(filehandle.clone());
 
                 (
                     ChangeInfo4 {

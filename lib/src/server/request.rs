@@ -1,6 +1,6 @@
 use std::{collections::HashMap, time::SystemTime};
 
-use bold_proto::nfs4_proto::NfsStat4;
+use bold_proto::nfs4_proto::{NfsFh4, NfsStat4};
 use tracing::error;
 
 use super::{
@@ -21,7 +21,7 @@ pub struct NfsRequest<'a> {
     // time the request was received
     pub request_time: u64,
     // locally cached filehandles for this client
-    pub filehandle_cache: Option<&'a mut HashMap<Vec<u8>, (SystemTime, Filehandle)>>,
+    pub filehandle_cache: Option<&'a mut HashMap<NfsFh4, (SystemTime, Filehandle)>>,
     cache_ttl: u64,
 }
 
@@ -32,7 +32,7 @@ impl<'a> NfsRequest<'a> {
         fmanager: FileManagerHandle,
         boot_time: u64,
         // cache ttl + filehandle
-        filehandle_cache: Option<&'a mut HashMap<Vec<u8>, (SystemTime, Filehandle)>>,
+        filehandle_cache: Option<&'a mut HashMap<NfsFh4, (SystemTime, Filehandle)>>,
     ) -> Self {
         let request_time = std::time::UNIX_EPOCH.elapsed().unwrap().as_secs();
 
@@ -53,17 +53,17 @@ impl<'a> NfsRequest<'a> {
         &self.client_addr
     }
 
-    pub fn current_filehandle_id(&self) -> Option<Vec<u8>> {
+    pub fn current_filehandle_id(&self) -> Option<NfsFh4> {
         match self.filehandle {
             Some(ref fh) => Some(fh.id.clone()),
             None => None,
         }
     }
 
-    pub fn current_filehandle(&self) -> Option<Filehandle> {
+    pub fn current_filehandle(&self) -> Option<&Filehandle> {
         // TODO handle None
         match self.filehandle {
-            Some(ref fh) => Some(fh.clone()),
+            Some(ref fh) => Some(fh),
             None => None,
         }
     }
@@ -91,7 +91,7 @@ impl<'a> NfsRequest<'a> {
         }
     }
 
-    pub fn drop_filehandle_from_cache(&mut self, filehandle_id: Vec<u8>) {
+    pub fn drop_filehandle_from_cache(&mut self, filehandle_id: NfsFh4) {
         let cache = self.filehandle_cache.as_mut();
         match cache {
             None => return,
@@ -101,7 +101,7 @@ impl<'a> NfsRequest<'a> {
         }
     }
 
-    pub fn get_filehandle_from_cache(&mut self, filehandle_id: Vec<u8>) -> Option<Filehandle> {
+    pub fn get_filehandle_from_cache(&mut self, filehandle_id: NfsFh4) -> Option<Filehandle> {
         // if no cache set, return None
         let cache = self.filehandle_cache.as_ref();
         match cache {
@@ -127,13 +127,13 @@ impl<'a> NfsRequest<'a> {
 
     pub async fn set_filehandle_id(
         &mut self,
-        filehandle_id: Vec<u8>,
+        filehandle_id: NfsFh4,
     ) -> Result<Filehandle, NfsStat4> {
         let res = self.fmanager.get_filehandle_for_id(filehandle_id).await;
         match res {
             Ok(ref fh) => {
-                self.filehandle = Some(*fh.clone());
-                Ok(*fh.clone())
+                self.filehandle = Some(fh.clone());
+                Ok(fh.clone())
             }
             Err(e) => {
                 error!("couldn't set filehandle: {:?}", e);
