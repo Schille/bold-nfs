@@ -1,21 +1,19 @@
 use std::collections::HashMap;
 
 use bold_proto::nfs4_proto::{
-    Attrlist4, FileAttr, FileAttrValue, NfsFh4, NfsLease4, NfsStat4, ACL4_SUPPORT_ALLOW_ACL,
+    Attrlist4, FileAttr, FileAttrValue, Fsid4, NfsFh4, NfsLease4, NfsStat4, ACL4_SUPPORT_ALLOW_ACL,
     FH4_VOLATILE_ANY, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR,
 };
 
 mod filehandle;
-pub use filehandle::Filehandle;
-pub use handle::FileManagerHandle;
+pub use filehandle::{FilehandleDb, FilehandleVfs};
+pub use handle::{FileManagerHandle, WriteCacheHandle};
 mod caching;
 mod handle;
 mod locking;
 
-use filehandle::FilehandleDb;
-use handle::{FileManagerMessage, WriteCacheHandle};
+use handle::FileManagerMessage;
 use locking::{LockingState, LockingStateDb};
-use tokio::sync::mpsc;
 use tracing::{debug, error};
 use vfs::VfsPath;
 
@@ -36,21 +34,14 @@ pub struct FileManager {
     // this field trackes a sequence number for stateids
     pub next_stateid_id: u64,
     pub boot_time: u64,
-    // endpoint for incoming messages
-    pub receiver: mpsc::Receiver<FileManagerMessage>,
     pub cachedb: HashMap<NfsFh4, WriteCacheHandle>,
 }
 
 impl FileManager {
-    pub fn new(
-        receiver: mpsc::Receiver<FileManagerMessage>,
-        root: VfsPath,
-        fsid: Option<u64>,
-    ) -> Self {
+    pub fn new(root: VfsPath, fsid: Option<u64>) -> Self {
         let fsid = fsid.unwrap_or(152);
         let boot_time = std::time::UNIX_EPOCH.elapsed().unwrap().as_secs();
         let mut fmanager = FileManager {
-            receiver,
             root: root.clone(),
             // lease time in seconds
             lease_time: 60,
@@ -71,134 +62,132 @@ impl FileManager {
     }
 
     // actor main message handler for FileManager
-    fn handle_message(&mut self, msg: FileManagerMessage) {
-        match msg {
-            FileManagerMessage::GetRootFilehandle(req) => {
-                let fh_wo_locks = self.root_fh();
-                let fh = self.attach_locks(fh_wo_locks);
-                req.respond_to.send(fh).unwrap();
-            }
-            FileManagerMessage::GetFilehandle(req) => {
-                if req.filehandle.is_some() {
-                    let fh = self.get_filehandle_by_id(&req.filehandle.unwrap());
-                    match fh {
-                        Some(fh_wo_locks) => {
-                            let fh = self.attach_locks(fh_wo_locks);
-                            req.respond_to.send(Some(fh)).unwrap();
-                        }
-                        None => {
-                            debug!("Filehandle not found");
-                            req.respond_to.send(None).unwrap();
-                        }
-                    }
-                } else if req.path.is_some() {
-                    let path = self.root.join(req.path.unwrap()).unwrap();
-                    // check if file exists
-                    if path.exists().unwrap() {
-                        let fh_wo_locks = self.get_filehandle(&path);
-                        let fh = self.attach_locks(fh_wo_locks);
-                        req.respond_to.send(Some(fh)).unwrap();
-                    } else {
-                        debug!("File not found {:?}", path);
-                        req.respond_to.send(None).unwrap();
-                    }
-                } else {
-                    let fh_wo_locks = self.root_fh();
-                    let fh = self.attach_locks(fh_wo_locks);
-                    req.respond_to.send(Some(fh)).unwrap();
-                }
-            }
-            FileManagerMessage::GetFilehandleAttrs(req) => {
-                req.respond_to
-                    .send(self.filehandle_attrs(&req.attrs_request, &req.filehandle_id))
-                    .unwrap();
-            }
-            FileManagerMessage::CreateFile(req) => {
-                let fh = self.create_file(&req.path);
-                if let Some(mut fh) = fh {
-                    let stateid = self.get_new_lockingstate_id();
-                    let lock = LockingState::new_shared_reservation(
-                        fh.id.clone(),
-                        stateid,
-                        req.client_id,
-                        req.owner,
-                        req.share_access,
-                        req.share_deny,
-                    );
-                    // add this new locking state to the db
-                    self.lockdb.insert(lock.clone());
-                    fh.locks = vec![lock];
-                    req.respond_to.send(Some(fh)).unwrap();
-                } else {
-                    req.respond_to.send(None).unwrap();
-                }
-            }
-            FileManagerMessage::LockFile() => todo!(),
-            FileManagerMessage::CloseFile() => todo!(),
-            FileManagerMessage::RemoveFile(req) => {
-                let filehandle = self.get_filehandle_by_path(&req.path.as_str().to_string());
-                let mut parent_path = req.path.parent().as_str().to_string();
-                match filehandle {
-                    Some(filehandle) => {
-                        // TODO check locks
-                        if req.path.is_dir().unwrap() {
-                            let _ = req.path.read_dir();
-                        } else {
-                            let _ = req.path.remove_file();
-                        }
-                        self.fhdb.remove_by_id(&filehandle.id);
-                    }
-                    None => {
-                        if req.path.is_dir().unwrap() {
-                            let _ = req.path.read_dir();
-                        } else {
-                            let _ = req.path.remove_file();
-                        }
-                    }
-                }
+    // fn handle_message(&mut self, msg: FileManagerMessage) {
+    //     match msg {
+    //         FileManagerMessage::GetRootFilehandle(req) => {
+    //             let fh_wo_locks = self.root_fh();
+    //             let fh = self.attach_locks(fh_wo_locks);
+    //             req.respond_to.send(fh).unwrap();
+    //         }
+    //         FileManagerMessage::GetFilehandle(req) => {
+    //             if req.filehandle.is_some() {
+    //                 let fh = self.get_filehandle_by_id(&req.filehandle.unwrap());
+    //                 match fh {
+    //                     Some(fh_wo_locks) => {
+    //                         let fh = self.attach_locks(fh_wo_locks);
+    //                         req.respond_to.send(Some(fh)).unwrap();
+    //                     }
+    //                     None => {
+    //                         debug!("Filehandle not found");
+    //                         req.respond_to.send(None).unwrap();
+    //                     }
+    //                 }
+    //             } else if req.path.is_some() {
+    //                 let path = self.root.join(req.path.unwrap()).unwrap();
+    //                 // check if file exists
+    //                 if path.exists().unwrap() {
+    //                     let fh_wo_locks = self.get_filehandle(&path);
+    //                     let fh = self.attach_locks(fh_wo_locks);
+    //                     req.respond_to.send(Some(fh)).unwrap();
+    //                 } else {
+    //                     debug!("File not found {:?}", path);
+    //                     req.respond_to.send(None).unwrap();
+    //                 }
+    //             } else {
+    //                 let fh_wo_locks = self.root_fh();
+    //                 let fh = self.attach_locks(fh_wo_locks);
+    //                 req.respond_to.send(Some(fh)).unwrap();
+    //             }
+    //         }
+    //         FileManagerMessage::GetFilehandleAttrs(req) => {
+    //             req.respond_to
+    //                 .send(self.filehandle_attrs(&req.attrs_request, &req.filehandle_id))
+    //                 .unwrap();
+    //         }
+    //         FileManagerMessage::CreateFile(req) => {
+    //             let fh = self.create_file(&req.path);
+    //             if let Some(mut fh) = fh {
+    //                 let stateid = self.get_new_lockingstate_id();
+    //                 let lock = LockingState::new_shared_reservation(
+    //                     fh.id.clone(),
+    //                     stateid,
+    //                     req.client_id,
+    //                     req.owner,
+    //                     req.share_access,
+    //                     req.share_deny,
+    //                 );
+    //                 // add this new locking state to the db
+    //                 self.lockdb.insert(lock.clone());
+    //                 fh.locks = vec![lock];
+    //                 req.respond_to.send(Some(fh)).unwrap();
+    //             } else {
+    //                 req.respond_to.send(None).unwrap();
+    //             }
+    //         }
+    //         FileManagerMessage::LockFile() => todo!(),
+    //         FileManagerMessage::CloseFile() => todo!(),
+    //         FileManagerMessage::RemoveFile(req) => {
+    //             let filehandle = self.get_filehandle_by_path(&req.path.as_str().to_string());
+    //             let mut parent_path = req.path.parent().as_str().to_string();
+    //             match filehandle {
+    //                 Some(filehandle) => {
+    //                     // TODO check locks
+    //                     if req.path.is_dir().unwrap() {
+    //                         let _ = req.path.read_dir();
+    //                     } else {
+    //                         let _ = req.path.remove_file();
+    //                     }
+    //                     self.fhdb.remove_by_id(&filehandle.id);
+    //                 }
+    //                 None => {
+    //                     if req.path.is_dir().unwrap() {
+    //                         let _ = req.path.read_dir();
+    //                     } else {
+    //                         let _ = req.path.remove_file();
+    //                     }
+    //                 }
+    //             }
 
-                if parent_path.is_empty() {
-                    // this is root
-                    parent_path = "/".to_string();
-                }
+    //             if parent_path.is_empty() {
+    //                 // this is root
+    //                 parent_path = "/".to_string();
+    //             }
 
-                let parent_filehandle = self.get_filehandle_by_path(&parent_path).unwrap();
-                // TODO: check locks
-                self.touch_filehandle(parent_filehandle);
-                req.respond_to.send(()).unwrap()
-            }
-            FileManagerMessage::TouchFile(req) => {
-                let filehandle = self.get_filehandle_by_id(&req.id);
-                match filehandle {
-                    Some(filehandle) => {
-                        // TODO: check locks
-                        self.touch_filehandle(filehandle);
-                    }
-                    None => {
-                        // we don't do nothing here
-                    }
-                }
-            }
-            FileManagerMessage::GetWriteCacheHandle(req) => {
-                let handle = self.get_cache_handle(req.filehandle, req.filemanager);
-                req.respond_to.send(handle).unwrap();
-            }
-            FileManagerMessage::DropWriteCacheHandle(req) => {
-                self.drop_cache_handle(&req.filehandle_id);
-            }
-            FileManagerMessage::UpdateFilehandle(req) => {
-                self.update_filehandle(req);
-            }
-        }
-    }
+    //             let parent_filehandle = self.get_filehandle_by_path(&parent_path).unwrap();
+    //             // TODO: check locks
+    //             self.touch_filehandle(parent_filehandle);
+    //             req.respond_to.send(()).unwrap()
+    //         }
+    //         FileManagerMessage::TouchFile(req) => {
+    //             let filehandle = self.get_filehandle_by_id(&req.id);
+    //             match filehandle {
+    //                 Some(filehandle) => {
+    //                     // TODO: check locks
+    //                     self.touch_filehandle(filehandle);
+    //                 }
+    //                 None => {
+    //                     // we don't do nothing here
+    //                 }
+    //             }
+    //         }
+    //         FileManagerMessage::GetWriteCacheHandle(req) => {
+    //             let handle = self.get_cache_handle(req.filehandle, req.filemanager);
+    //             req.respond_to.send(handle).unwrap();
+    //         }
+    //         FileManagerMessage::DropWriteCacheHandle(req) => {
+    //             self.drop_cache_handle(&req.filehandle_id);
+    //         }
+    //         FileManagerMessage::UpdateFilehandle(req) => {
+    //             self.update_filehandle(req);
+    //         }
+    //     }
+    // }
 
-    fn touch_filehandle(&mut self, filehandle: Filehandle) {
+    fn touch_filehandle(&mut self, filehandle: FilehandleVfs) {
         // create a new filehandle with refreshed attributes
-        let fh = Filehandle::new(
+        let fh = FilehandleVfs::new(
             filehandle.file.clone(),
             filehandle.id.clone(),
-            self.fsid,
-            self.fsid,
             filehandle.version,
         );
         self.fhdb.remove_by_id(&filehandle.id);
@@ -207,14 +196,21 @@ impl FileManager {
         self.fhdb.insert(fh);
     }
 
-    fn update_filehandle(&mut self, filehandle: Filehandle) {
+    fn update_filehandle(&mut self, filehandle: FilehandleVfs) {
         debug!("Updateing filehandle: {:?}", &filehandle);
         self.fhdb.remove_by_id(&filehandle.id);
         // and replace the old one
         self.fhdb.insert(filehandle);
     }
 
-    fn create_file(&mut self, request_file: &VfsPath) -> Option<Filehandle> {
+    pub fn create_file(
+        &mut self,
+        request_file: &VfsPath,
+        client_id: u64,
+        owner: Vec<u8>,
+        share_access: u32,
+        share_deny: u32,
+    ) -> Option<FilehandleVfs> {
         let newfile = match request_file.create_file() {
             Ok(_) => {
                 debug!("File created successfully");
@@ -227,7 +223,7 @@ impl FileManager {
         };
 
         // this filehandle is already added to the db
-        let fh = self.get_filehandle(newfile);
+        let mut fh = self.get_filehandle(newfile);
         let mut path = newfile.parent().as_str().to_string();
         if path.is_empty() {
             // this is root
@@ -237,7 +233,41 @@ impl FileManager {
         let parent_filehandle = self.get_filehandle_by_path(&path).unwrap();
         self.touch_filehandle(parent_filehandle);
 
+        let stateid = self.get_new_lockingstate_id();
+        let lock = LockingState::new_shared_reservation(
+            fh.id.clone(),
+            stateid,
+            client_id,
+            owner,
+            share_access,
+            share_deny,
+        );
+        // add this new locking state to the db
+        self.lockdb.insert(lock.clone());
+        fh.locks = vec![lock];
+        self.touch_filehandle(fh.clone());
         Some(fh)
+    }
+
+    pub fn remove_file(&mut self, filehandle: FilehandleVfs) {
+        // TODO: handle file already removed
+        let mut parent_path = filehandle.file.parent().as_str().to_string();
+        // TODO check locks
+        if filehandle.file.is_dir().unwrap() {
+            let _ = filehandle.file.read_dir();
+        } else {
+            let _ = filehandle.file.remove_file();
+        }
+        self.fhdb.remove_by_id(&filehandle.id);
+
+        if parent_path.is_empty() {
+            // this is root
+            parent_path = "/".to_string();
+        }
+        debug!("parent path {:?}", parent_path);
+        let parent_filehandle = self.get_filehandle_by_path(&parent_path).unwrap();
+        // TODO: check locks
+        self.touch_filehandle(parent_filehandle);
     }
 
     fn get_new_lockingstate_id(&mut self) -> [u8; 12] {
@@ -272,7 +302,7 @@ impl FileManager {
         id.try_into().expect("Cannot convert Vec to NfsFh4")
     }
 
-    fn get_filehandle_by_id(&mut self, id: &NfsFh4) -> Option<Filehandle> {
+    fn get_filehandle_by_id(&mut self, id: &NfsFh4) -> Option<FilehandleVfs> {
         let fh = self.fhdb.get_by_id(id);
         if let Some(fh) = fh {
             if fh.file.exists().unwrap() {
@@ -287,17 +317,17 @@ impl FileManager {
         None
     }
 
-    pub fn get_filehandle_by_path(&self, path: &String) -> Option<Filehandle> {
+    pub fn get_filehandle_by_path(&self, path: &String) -> Option<FilehandleVfs> {
         debug!("get_filehandle_by_path: {}", path);
         self.fhdb.get_by_path(path).cloned()
     }
 
-    pub fn get_filehandle(&mut self, file: &VfsPath) -> Filehandle {
+    pub fn get_filehandle(&mut self, file: &VfsPath) -> FilehandleVfs {
         let id = self.get_filehandle_id(file);
         match self.get_filehandle_by_id(&id) {
             Some(fh) => fh.clone(),
             None => {
-                let fh = Filehandle::new(file.clone(), id, self.fsid, self.fsid, 0);
+                let fh = FilehandleVfs::new(file.clone(), id, 0);
                 debug!("Storing new filehandle: {:?}", fh);
                 self.fhdb.insert(fh.clone());
                 fh
@@ -305,30 +335,18 @@ impl FileManager {
         }
     }
 
-    pub fn root_fh(&mut self) -> Filehandle {
+    pub fn root_fh(&mut self) -> FilehandleVfs {
         self.get_filehandle(&self.root.clone())
     }
 
-    pub fn attach_locks(&self, mut filehandle: Filehandle) -> Filehandle {
+    pub fn attach_locks(&self, mut filehandle: FilehandleVfs) -> FilehandleVfs {
         let locks = self.lockdb.get_by_filehandle_id(&filehandle.id);
         filehandle.locks = locks.into_iter().cloned().collect();
         filehandle
     }
 
-    pub fn get_cache_handle(
-        &mut self,
-        mut filehandle: Filehandle,
-        filemanager: FileManagerHandle,
-    ) -> WriteCacheHandle {
-        if self.cachedb.contains_key(&filehandle.id) {
-            self.cachedb.get(&filehandle.id).unwrap().clone()
-        } else {
-            let handle = WriteCacheHandle::new(filehandle.clone(), filemanager);
-            filehandle.write_cache = Some(handle.clone());
-            self.cachedb.insert(filehandle.id.clone(), handle.clone());
-            self.update_filehandle(filehandle);
-            handle
-        }
+    pub fn get_cache_handle(&self, filehandle: &FilehandleVfs) -> WriteCacheHandle {
+        WriteCacheHandle::new(filehandle.clone())
     }
 
     pub fn drop_cache_handle(&mut self, filehandle_id: &NfsFh4) {
@@ -337,128 +355,151 @@ impl FileManager {
         }
         let filehandle = self.get_filehandle_by_id(filehandle_id);
         if let Some(mut filehandle) = filehandle {
-            filehandle.write_cache = None;
             self.update_filehandle(filehandle);
         }
     }
 
-    pub fn filehandle_attrs(
-        &mut self,
-        attr_request: &Vec<FileAttr>,
-        filehandle_id: &NfsFh4,
-    ) -> Option<(Vec<FileAttr>, Vec<FileAttrValue>)> {
-        let mut answer_attrs = Vec::new();
-        let mut attrs = Vec::new();
-        let fh = self.get_filehandle_by_id(filehandle_id);
+    pub fn set_attr(
+        &self,
+        filehandle: &FilehandleVfs,
+        attr_vals: &Attrlist4<FileAttrValue>,
+    ) -> Attrlist4<FileAttr> {
+        let mut attrsset = Attrlist4::<FileAttr>::new(None);
+        for attr in attr_vals.iter() {
+            match attr {
+                FileAttrValue::Size(args) => {
+                    debug!("Set size to: {:?}", args);
+                    let mut buf = vec![0_u8; *args as usize];
+                    let mut file = filehandle.file.open_file().unwrap();
+                    let _ = file.rewind();
+                    file.read_exact(&mut buf).unwrap();
 
-        match fh {
-            None => None,
-
-            Some(filehandle) => {
-                for fileattr in attr_request {
-                    match fileattr {
-                        FileAttr::SupportedAttrs => {
-                            attrs.push(FileAttrValue::SupportedAttrs(self.attr_supported_attrs()));
-                            answer_attrs.push(FileAttr::SupportedAttrs);
-                        }
-                        FileAttr::Type => {
-                            attrs.push(FileAttrValue::Type(filehandle.attr_type));
-                            answer_attrs.push(FileAttr::Type);
-                        }
-                        FileAttr::LeaseTime => {
-                            attrs.push(FileAttrValue::LeaseTime(self.attr_lease_time()));
-                            answer_attrs.push(FileAttr::LeaseTime);
-                        }
-                        FileAttr::Change => {
-                            attrs.push(FileAttrValue::Change(filehandle.attr_change));
-                            answer_attrs.push(FileAttr::Change);
-                        }
-                        FileAttr::Size => {
-                            attrs.push(FileAttrValue::Size(filehandle.attr_size));
-                            answer_attrs.push(FileAttr::Size);
-                        }
-                        FileAttr::LinkSupport => {
-                            attrs.push(FileAttrValue::LinkSupport(self.attr_link_support()));
-                            answer_attrs.push(FileAttr::LinkSupport);
-                        }
-                        FileAttr::SymlinkSupport => {
-                            attrs.push(FileAttrValue::SymlinkSupport(self.attr_symlink_support()));
-                            answer_attrs.push(FileAttr::SymlinkSupport);
-                        }
-                        FileAttr::NamedAttr => {
-                            attrs.push(FileAttrValue::NamedAttr(self.attr_named_attr()));
-                            answer_attrs.push(FileAttr::NamedAttr);
-                        }
-                        FileAttr::AclSupport => {
-                            attrs.push(FileAttrValue::AclSupport(self.attr_acl_support()));
-                            answer_attrs.push(FileAttr::AclSupport);
-                        }
-                        FileAttr::Fsid => {
-                            attrs.push(FileAttrValue::Fsid(filehandle.attr_fsid));
-                            answer_attrs.push(FileAttr::Fsid);
-                        }
-                        FileAttr::UniqueHandles => {
-                            attrs.push(FileAttrValue::UniqueHandles(self.attr_unique_handles()));
-                            answer_attrs.push(FileAttr::UniqueHandles);
-                        }
-                        FileAttr::FhExpireType => {
-                            attrs.push(FileAttrValue::FhExpireType(self.attr_expire_type()));
-                            answer_attrs.push(FileAttr::FhExpireType);
-                        }
-                        FileAttr::RdattrError => {
-                            attrs.push(FileAttrValue::RdattrError(self.attr_rdattr_error()));
-                            answer_attrs.push(FileAttr::RdattrError);
-                        }
-                        FileAttr::Fileid => {
-                            attrs.push(FileAttrValue::Fileid(filehandle.attr_fileid));
-                            answer_attrs.push(FileAttr::Fileid);
-                        }
-                        FileAttr::Mode => {
-                            attrs.push(FileAttrValue::Mode(self.attr_mode()));
-                            answer_attrs.push(FileAttr::Mode);
-                        }
-                        FileAttr::Numlinks => {
-                            attrs.push(FileAttrValue::Numlinks(self.attr_numlinks()));
-                            answer_attrs.push(FileAttr::Numlinks);
-                        }
-                        FileAttr::Owner => {
-                            attrs.push(FileAttrValue::Owner(filehandle.attr_owner.clone()));
-                            answer_attrs.push(FileAttr::Owner);
-                        }
-                        FileAttr::OwnerGroup => {
-                            attrs.push(FileAttrValue::OwnerGroup(
-                                filehandle.attr_owner_group.clone(),
-                            ));
-                            answer_attrs.push(FileAttr::OwnerGroup);
-                        }
-                        FileAttr::SpaceUsed => {
-                            attrs.push(FileAttrValue::SpaceUsed(filehandle.attr_space_used));
-                            answer_attrs.push(FileAttr::SpaceUsed);
-                        }
-                        FileAttr::TimeAccess => {
-                            attrs.push(FileAttrValue::TimeAccess(filehandle.attr_time_access));
-                            answer_attrs.push(FileAttr::TimeAccess);
-                        }
-                        FileAttr::TimeMetadata => {
-                            attrs.push(FileAttrValue::TimeMetadata(filehandle.attr_time_metadata));
-                            answer_attrs.push(FileAttr::TimeMetadata);
-                        }
-                        FileAttr::TimeModify => {
-                            attrs.push(FileAttrValue::TimeModify(filehandle.attr_time_modify));
-                            answer_attrs.push(FileAttr::TimeModify);
-                        }
-                        // FileAttr::MountedOnFileid => {
-                        //     attrs.push(FileAttrValue::MountedOnFileid(
-                        //         filehandle.attr_mounted_on_fileid,
-                        //     ));
-                        //     answer_attrs.push(FileAttr::MountedOnFileid);
-                        // }
-                        _ => {}
-                    }
+                    let mut file = filehandle.file.append_file().unwrap();
+                    let _ = file.rewind();
+                    file.write_all(&buf).unwrap();
+                    file.flush().unwrap();
+                    attrsset.push(FileAttr::Size);
                 }
-                Some((answer_attrs, attrs))
+                _ => {
+                    debug!("Not supported set attr requested for: {:?}", attr);
+                }
             }
         }
+        attrsset
+    }
+
+    pub fn filehandle_attrs(
+        &self,
+        attr_request: &Vec<FileAttr>,
+        filehandle: &FilehandleVfs,
+    ) -> Option<(Attrlist4<FileAttr>, Attrlist4<FileAttrValue>)> {
+        let mut answer_attrs = Attrlist4::<FileAttr>::new(None);
+        let mut attrs = Attrlist4::<FileAttrValue>::new(None);
+
+        for fileattr in attr_request {
+            match fileattr {
+                FileAttr::SupportedAttrs => {
+                    attrs.push(FileAttrValue::SupportedAttrs(self.attr_supported_attrs()));
+                    answer_attrs.push(FileAttr::SupportedAttrs);
+                }
+                FileAttr::Type => {
+                    attrs.push(FileAttrValue::Type(filehandle.attr_type()));
+                    answer_attrs.push(FileAttr::Type);
+                }
+                FileAttr::LeaseTime => {
+                    attrs.push(FileAttrValue::LeaseTime(self.attr_lease_time()));
+                    answer_attrs.push(FileAttr::LeaseTime);
+                }
+                FileAttr::Change => {
+                    attrs.push(FileAttrValue::Change(
+                        filehandle.attr_change(filehandle.version),
+                    ));
+                    answer_attrs.push(FileAttr::Change);
+                }
+                FileAttr::Size => {
+                    attrs.push(FileAttrValue::Size(filehandle.attr_size()));
+                    answer_attrs.push(FileAttr::Size);
+                }
+                FileAttr::LinkSupport => {
+                    attrs.push(FileAttrValue::LinkSupport(self.attr_link_support()));
+                    answer_attrs.push(FileAttr::LinkSupport);
+                }
+                FileAttr::SymlinkSupport => {
+                    attrs.push(FileAttrValue::SymlinkSupport(self.attr_symlink_support()));
+                    answer_attrs.push(FileAttr::SymlinkSupport);
+                }
+                FileAttr::NamedAttr => {
+                    attrs.push(FileAttrValue::NamedAttr(self.attr_named_attr()));
+                    answer_attrs.push(FileAttr::NamedAttr);
+                }
+                FileAttr::AclSupport => {
+                    attrs.push(FileAttrValue::AclSupport(self.attr_acl_support()));
+                    answer_attrs.push(FileAttr::AclSupport);
+                }
+                FileAttr::Fsid => {
+                    attrs.push(FileAttrValue::Fsid(FilehandleVfs::attr_fsid(
+                        self.fsid, self.fsid,
+                    )));
+                    answer_attrs.push(FileAttr::Fsid);
+                }
+                FileAttr::UniqueHandles => {
+                    attrs.push(FileAttrValue::UniqueHandles(self.attr_unique_handles()));
+                    answer_attrs.push(FileAttr::UniqueHandles);
+                }
+                FileAttr::FhExpireType => {
+                    attrs.push(FileAttrValue::FhExpireType(self.attr_expire_type()));
+                    answer_attrs.push(FileAttr::FhExpireType);
+                }
+                FileAttr::RdattrError => {
+                    attrs.push(FileAttrValue::RdattrError(self.attr_rdattr_error()));
+                    answer_attrs.push(FileAttr::RdattrError);
+                }
+                FileAttr::Fileid => {
+                    attrs.push(FileAttrValue::Fileid(filehandle.attr_fileid()));
+                    answer_attrs.push(FileAttr::Fileid);
+                }
+                FileAttr::Mode => {
+                    attrs.push(FileAttrValue::Mode(self.attr_mode()));
+                    answer_attrs.push(FileAttr::Mode);
+                }
+                FileAttr::Numlinks => {
+                    attrs.push(FileAttrValue::Numlinks(self.attr_numlinks()));
+                    answer_attrs.push(FileAttr::Numlinks);
+                }
+                FileAttr::Owner => {
+                    attrs.push(FileAttrValue::Owner(filehandle.attr_owner()));
+                    answer_attrs.push(FileAttr::Owner);
+                }
+                FileAttr::OwnerGroup => {
+                    attrs.push(FileAttrValue::OwnerGroup(filehandle.attr_owner_group()));
+                    answer_attrs.push(FileAttr::OwnerGroup);
+                }
+                FileAttr::SpaceUsed => {
+                    attrs.push(FileAttrValue::SpaceUsed(filehandle.attr_space_used()));
+                    answer_attrs.push(FileAttr::SpaceUsed);
+                }
+                FileAttr::TimeAccess => {
+                    attrs.push(FileAttrValue::TimeAccess(filehandle.attr_time_access()));
+                    answer_attrs.push(FileAttr::TimeAccess);
+                }
+                FileAttr::TimeMetadata => {
+                    attrs.push(FileAttrValue::TimeMetadata(filehandle.attr_time_metadata()));
+                    answer_attrs.push(FileAttr::TimeMetadata);
+                }
+                FileAttr::TimeModify => {
+                    attrs.push(FileAttrValue::TimeModify(filehandle.attr_time_modify()));
+                    answer_attrs.push(FileAttr::TimeModify);
+                }
+                // FileAttr::MountedOnFileid => {
+                //     attrs.push(FileAttrValue::MountedOnFileid(
+                //         filehandle.attr_mounted_on_fileid,
+                //     ));
+                //     answer_attrs.push(FileAttr::MountedOnFileid);
+                // }
+                _ => {}
+            }
+        }
+        Some((answer_attrs, attrs))
     }
 
     pub fn attr_lease_time(&self) -> NfsLease4 {
@@ -574,14 +615,6 @@ impl FileManager {
         // numlinks:
         // Number of hard links to this object.
         1
-    }
-}
-
-// FileManager is run as with the actor pattern
-// learn more: https://ryhl.io/blog/actors-with-tokio/
-async fn run_file_manager(mut actor: FileManager) {
-    while let Some(msg) = actor.receiver.recv().await {
-        actor.handle_message(msg);
     }
 }
 

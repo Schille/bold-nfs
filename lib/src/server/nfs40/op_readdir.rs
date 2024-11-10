@@ -14,7 +14,7 @@ impl NfsOperation for Readdir4args {
             "Operation 26: READDIR - Read Directory {:?}, with request {:?}",
             self, request
         );
-        let current_fh = request.current_filehandle();
+        let current_fh = request.current_filehandle_vfs();
         let dir_fh = match current_fh {
             Some(filehandle) => filehandle,
             None => {
@@ -47,25 +47,24 @@ impl NfsOperation for Readdir4args {
                 dircount_actual = dircount_actual + 8 + name.len() + 5;
                 maxcount_actual += 200;
                 if dircount == 0 || (dircount > dircount_actual && maxcount > maxcount_actual) {
-                    let filehandle = request
-                        .file_manager()
-                        .get_filehandle_for_path(entry.as_str().to_string())
-                        .await;
-                    match filehandle {
-                        Err(_e) => {
-                            error!("None filehandle");
-                            return NfsOpResponse {
-                                request,
-                                result: None,
-                                status: NfsStat4::Nfs4errFhexpired,
-                            };
+                    let file_manager = request.file_manager.clone();
+                    let rmanager = file_manager.read().unwrap();
+
+                    let rfilehandle = rmanager.get_filehandle_by_path(&entry.as_str().to_string());
+                    drop(rmanager);
+
+                    let filehandle = match rfilehandle {
+                        Some(filehandle) => filehandle,
+                        None => {
+                            let mut wmanager = file_manager.write().unwrap();
+                            let filehandle = wmanager.get_filehandle(&entry);
+                            drop(wmanager);
+                            filehandle
                         }
-                        Ok(filehandle) => {
-                            // https://datatracker.ietf.org/doc/html/rfc7530#section-16.24.4
-                            // To enable some client environments, the cookie values of 0, 1, and 2 are to be considered reserved.
-                            filehandles.push((i + 3, filehandle));
-                        }
-                    }
+                    };
+                    // https://datatracker.ietf.org/doc/html/rfc7530#section-16.24.4
+                    // To enable some client environments, the cookie values of 0, 1, and 2 are to be considered reserved.
+                    filehandles.push((i + 3, filehandle));
                 }
             }
         }
@@ -106,9 +105,11 @@ impl NfsOperation for Readdir4args {
         let mut tnextentry = None;
         let mut added_entries = 0;
         for (cookie, fh) in filehandles.into_iter().rev() {
-            let resp = request
-                .file_manager()
-                .filehandle_attrs(&self.attr_request, &fh);
+            let file_manager = request.file_manager.clone();
+            let rmanager = file_manager.read().unwrap();
+
+            let resp = rmanager.filehandle_attrs(&self.attr_request, &fh);
+            drop(rmanager);
             let (answer_attrs, attrs) = match resp {
                 Some(inner) => inner,
                 None => {
@@ -183,11 +184,14 @@ mod integration_tests {
     async fn test_read_directory() {
         // dummy fs, empty
         let request = create_nfs40_server(None).await;
-        let fh = request.file_manager().get_root_filehandle().await;
+        let file_manager = request.file_manager.clone();
+        let manager = file_manager.read().unwrap();
+        let fh = manager.get_filehandle_by_path(&String::from("/"));
 
         let putfh_args = PutFh4args {
             object: fh.unwrap().id,
         };
+        drop(manager);
         let putfh_request = putfh_args.execute(request).await;
 
         let readdir_args = Readdir4args {
@@ -232,11 +236,14 @@ mod integration_tests {
         // a more filled directory, still eof = true
 
         let request = create_nfs40_server(Some(create_fake_fs())).await;
-        let fh = request.file_manager().get_root_filehandle().await;
+        let file_manager = request.file_manager.clone();
+        let manager = file_manager.read().unwrap();
+        let fh = manager.get_filehandle_by_path(&String::from("/"));
 
         let putfh_args = PutFh4args {
             object: fh.unwrap().id,
         };
+        drop(manager);
         let putfh_request = putfh_args.execute(request).await;
 
         let readdir_args = Readdir4args {

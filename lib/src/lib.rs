@@ -3,12 +3,13 @@
 pub mod server;
 
 use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
 use bold_proto::rpc_proto::{AcceptBody, AcceptedReply, OpaqueAuth, ReplyBody};
 use bold_proto::XDRProtoCodec;
 use futures::SinkExt;
 use server::clientmanager::ClientManagerHandle;
-use server::filemanager::FileManagerHandle;
+use server::filemanager::{FileManager, FileManagerHandle};
 use tokio::net::TcpListener;
 use tokio_stream::StreamExt;
 use tokio_util::codec::Framed;
@@ -16,6 +17,7 @@ use tracing::{error, info, span, trace, Level};
 pub use vfs;
 pub use vfs::VfsPath;
 
+use crate::server::filemanager::FilehandleDb;
 use crate::server::request::NfsRequest;
 use crate::server::{NFSService, NfsProtoImpl};
 
@@ -51,7 +53,9 @@ impl NFSServer {
                 // start the client manager and file manager
                 // configs go here
                 let client_manager_handle = ClientManagerHandle::new();
-                let file_manager_handle = FileManagerHandle::new(self.root.clone(), None);
+                // let file_manager_handle = FileManagerHandle::new(self.root.clone(), None);
+                let filehandle_manager =
+                    Arc::new(RwLock::new(FileManager::new(self.root.clone(), None)));
 
                 loop {
                     match listener.accept().await {
@@ -74,8 +78,8 @@ impl NFSServer {
                                         let request = NfsRequest::new(
                                             addr.to_string(),
                                             client_manager_handle.clone(),
-                                            file_manager_handle.clone(),
                                             self.boot_time,
+                                            filehandle_manager.clone(),
                                             Some(&mut filehandle_cache),
                                         );
                                         // ToDo implement and select correct version of NFS protocol, this services all with minor version 0
@@ -163,8 +167,12 @@ impl ServerBuilder {
 
 #[cfg(test)]
 mod test_utils {
+    use std::sync::{Arc, RwLock};
+
     use crate::server::{
-        clientmanager::ClientManagerHandle, filemanager::FileManagerHandle, request::NfsRequest,
+        clientmanager::ClientManagerHandle,
+        filemanager::{FileManager, FileManagerHandle, FilehandleDb, FilehandleVfs},
+        request::NfsRequest,
     };
     use bold_proto::nfs4_proto::{CbClient4, ClientAddr4, NfsClientId4, SetClientId4args};
     use vfs::{MemoryFS, VfsPath};
@@ -226,13 +234,14 @@ mod test_utils {
         };
 
         let client_mananger_handle = ClientManagerHandle::new();
-        let file_mananger_handle = FileManagerHandle::new(root, None);
+        // let file_mananger_handle = FileManagerHandle::new(root, None);
+        let filehandle_manager = Arc::new(RwLock::new(FileManager::new(root, None)));
 
         NfsRequest::new(
             "127.0.0.1:12345".to_owned(),
             client_mananger_handle,
-            file_mananger_handle,
             0_u64,
+            filehandle_manager,
             None,
         )
     }

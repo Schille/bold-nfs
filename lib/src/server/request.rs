@@ -1,27 +1,34 @@
-use std::{collections::HashMap, time::SystemTime};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+    time::SystemTime,
+};
 
 use bold_proto::nfs4_proto::{NfsFh4, NfsStat4};
 use tracing::error;
 
 use super::{
     clientmanager::ClientManagerHandle,
-    filemanager::{FileManagerHandle, Filehandle},
+    filemanager::{FileManager, FilehandleVfs, WriteCacheHandle},
 };
 
 #[derive(Debug)]
 pub struct NfsRequest<'a> {
     client_addr: String,
-    filehandle: Option<Filehandle>,
+    filehandle: Option<NfsFh4>,
     // shared state for client manager between connections
     cmanager: ClientManagerHandle,
     // local filehandle manager
-    fmanager: FileManagerHandle,
+    // fmanager: FileManagerHandle,
     // time the server was booted
     pub boot_time: u64,
     // time the request was received
     pub request_time: u64,
+    // filehandle db
+    pub file_manager: Arc<RwLock<FileManager>>,
     // locally cached filehandles for this client
-    pub filehandle_cache: Option<&'a mut HashMap<NfsFh4, (SystemTime, Filehandle)>>,
+    pub writehandle_cache: Option<&'a mut HashMap<NfsFh4, WriteCacheHandle>>,
+
     cache_ttl: u64,
 }
 
@@ -29,10 +36,12 @@ impl<'a> NfsRequest<'a> {
     pub fn new(
         client_addr: String,
         cmanager: ClientManagerHandle,
-        fmanager: FileManagerHandle,
+        // fmanager: FileManagerHandle,
         boot_time: u64,
+        // filehandle manager
+        filehandle_manager: Arc<RwLock<FileManager>>,
         // cache ttl + filehandle
-        filehandle_cache: Option<&'a mut HashMap<NfsFh4, (SystemTime, Filehandle)>>,
+        writehandle_cache: Option<&'a mut HashMap<NfsFh4, WriteCacheHandle>>,
     ) -> Self {
         let request_time = std::time::UNIX_EPOCH.elapsed().unwrap().as_secs();
 
@@ -40,10 +49,11 @@ impl<'a> NfsRequest<'a> {
             client_addr,
             filehandle: None,
             cmanager,
-            fmanager,
+            // fmanager,
             boot_time,
             request_time,
-            filehandle_cache,
+            writehandle_cache: writehandle_cache,
+            file_manager: filehandle_manager,
             // set filehandle cache ttl to 10 seconds
             cache_ttl: 10,
         }
@@ -55,15 +65,22 @@ impl<'a> NfsRequest<'a> {
 
     pub fn current_filehandle_id(&self) -> Option<NfsFh4> {
         match self.filehandle {
-            Some(ref fh) => Some(fh.id.clone()),
+            Some(fh) => Some(fh),
             None => None,
         }
     }
 
-    pub fn current_filehandle(&self) -> Option<&Filehandle> {
+    pub fn current_filehandle_vfs(&self) -> Option<FilehandleVfs> {
         // TODO handle None
         match self.filehandle {
-            Some(ref fh) => Some(fh),
+            Some(ref fh) => {
+                let rmanager = self.file_manager.read().unwrap();
+                let fh_vfs = rmanager.fhdb.get_by_id(&fh);
+                if let Some(fh_vfs) = fh_vfs {
+                    return Some(fh_vfs.clone());
+                }
+                None
+            }
             None => None,
         }
     }
@@ -72,27 +89,26 @@ impl<'a> NfsRequest<'a> {
         self.cmanager.clone()
     }
 
-    pub fn file_manager(&self) -> FileManagerHandle {
-        self.fmanager.clone()
-    }
+    // pub fn file_manager(&self) -> FileManagerHandle {
+    //     self.fmanager.clone()
+    // }
 
-    pub fn set_filehandle(&mut self, filehandle: Filehandle) {
-        self.filehandle = Some(filehandle);
-    }
+    // pub fn set_filehandle(&mut self, filehandle: NfsFh4) {
+    //     self.filehandle = Some(filehandle);
+    // }
 
-    pub fn cache_filehandle(&mut self, filehandle: Filehandle) {
-        let cache = self.filehandle_cache.as_mut();
+    pub fn cache_writehandle(&mut self, fh: NfsFh4, writecache: WriteCacheHandle) {
+        let cache = self.writehandle_cache.as_mut();
         match cache {
             None => return,
             Some(cache) => {
-                let now: SystemTime = SystemTime::now();
-                cache.insert(filehandle.id.clone(), (now, filehandle));
+                cache.insert(fh, writecache);
             }
         }
     }
 
     pub fn drop_filehandle_from_cache(&mut self, filehandle_id: NfsFh4) {
-        let cache = self.filehandle_cache.as_mut();
+        let cache = self.writehandle_cache.as_mut();
         match cache {
             None => return,
             Some(cache) => {
@@ -101,42 +117,31 @@ impl<'a> NfsRequest<'a> {
         }
     }
 
-    pub fn get_filehandle_from_cache(&mut self, filehandle_id: NfsFh4) -> Option<Filehandle> {
+    pub fn get_writehandle_from_cache(
+        &mut self,
+        filehandle_id: NfsFh4,
+    ) -> Option<WriteCacheHandle> {
         // if no cache set, return None
-        let cache = self.filehandle_cache.as_ref();
+        let cache = self.writehandle_cache.as_ref();
         match cache {
             None => None,
-            Some(cache) => {
-                match cache.get(&filehandle_id) {
-                    Some(fh) => {
-                        let now: SystemTime = SystemTime::now();
-                        let (time, filehandle) = fh;
-                        // if cache is expired since 10 seconds, remove it
-                        if now.duration_since(*time).unwrap().as_secs() > self.cache_ttl {
-                            self.drop_filehandle_from_cache(filehandle.id.clone());
-                            None
-                        } else {
-                            Some(filehandle.clone())
-                        }
-                    }
-                    None => None,
-                }
-            }
+            Some(cache) => match cache.get(&filehandle_id) {
+                Some(fh) => Some(fh.clone()),
+                None => None,
+            },
         }
     }
 
-    pub async fn set_filehandle_id(
-        &mut self,
-        filehandle_id: NfsFh4,
-    ) -> Result<Filehandle, NfsStat4> {
-        let res = self.fmanager.get_filehandle_for_id(filehandle_id).await;
-        match res {
-            Ok(ref fh) => {
-                self.filehandle = Some(fh.clone());
+    pub fn set_filehandle(&mut self, filehandle_id: NfsFh4) -> Result<FilehandleVfs, NfsStat4> {
+        let rmanager = self.file_manager.read().unwrap();
+        let fh = rmanager.fhdb.get_by_id(&filehandle_id);
+        match fh {
+            Some(fh) => {
+                self.filehandle = Some(fh.id);
                 Ok(fh.clone())
             }
-            Err(e) => {
-                error!("couldn't set filehandle: {:?}", e);
+            None => {
+                error!("couldn't set filehandle");
                 Err(NfsStat4::Nfs4errStale)
             }
         }

@@ -21,7 +21,7 @@ impl NfsOperation for Write4args {
             self, request
         );
 
-        let current_filehandle = request.current_filehandle();
+        let current_filehandle = request.current_filehandle_vfs();
         let filehandle = match current_filehandle {
             Some(filehandle) => filehandle,
             None => {
@@ -38,16 +38,18 @@ impl NfsOperation for Write4args {
         let mut count: u32 = self.data.len() as u32;
         if self.stable == StableHow4::Unstable4 {
             // write to cache
-            let write_cache = match &filehandle.write_cache {
+
+            let write_cache = request.get_writehandle_from_cache(filehandle.id);
+
+            let write_cache = match write_cache {
                 Some(write_cache) => write_cache,
                 None => {
-                    let write_cache = request
-                        .file_manager()
-                        .get_write_cache_handle(filehandle.clone())
-                        .await
-                        .unwrap();
                     request.drop_filehandle_from_cache(filehandle.id.clone());
-                    &write_cache.clone()
+                    let file_manager = request.file_manager.clone();
+                    let rmanager = file_manager.read().unwrap();
+                    let cache_handle = rmanager.get_cache_handle(&filehandle);
+                    request.cache_writehandle(filehandle.id.clone(), cache_handle.clone());
+                    cache_handle
                 }
             };
 
@@ -63,7 +65,7 @@ impl NfsOperation for Write4args {
 
             if count > 0 {
                 file.flush().unwrap();
-                request.file_manager().touch_file(filehandle.id).await;
+                // request.file_manager().touch_file(filehandle.id).await;
             }
         }
 

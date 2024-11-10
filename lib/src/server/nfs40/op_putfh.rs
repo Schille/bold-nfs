@@ -12,23 +12,10 @@ impl NfsOperation for PutFh4args {
             self, request
         );
 
-        match request.get_filehandle_from_cache(self.object.clone()) {
-            Some(fh) => {
-                request.set_filehandle(fh);
-                return NfsOpResponse {
-                    request,
-                    result: Some(NfsResOp4::Opputfh(PutFh4res {
-                        status: NfsStat4::Nfs4Ok,
-                    })),
-                    status: NfsStat4::Nfs4Ok,
-                };
-            }
-            None => {}
-        }
+        let fh_vfs = request.set_filehandle(self.object);
 
-        match request.set_filehandle_id(self.object.clone()).await {
+        match fh_vfs {
             Ok(fh) => {
-                request.cache_filehandle(fh);
                 return NfsOpResponse {
                     request,
                     result: Some(NfsResOp4::Opputfh(PutFh4res {
@@ -63,8 +50,9 @@ mod integration_tests {
     #[traced_test]
     async fn test_put_filehandle() {
         let request = create_nfs40_server(None).await;
-        let fh = request.file_manager().get_root_filehandle().await;
-
+        let file_manager = request.file_manager.clone();
+        let manager = file_manager.read().unwrap();
+        let fh = manager.get_filehandle_by_path(&String::from("/"));
         let args = PutFh4args {
             object: fh.unwrap().id,
         };

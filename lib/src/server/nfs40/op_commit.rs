@@ -18,7 +18,7 @@ impl NfsOperation for Commit4args {
             "Operation 5: COMMIT - Commit Cached Data {:?}, with request {:?}",
             self, request
         );
-        let current_filehandle = request.current_filehandle();
+        let current_filehandle = request.current_filehandle_vfs();
         let filehandle = match current_filehandle {
             Some(filehandle) => filehandle,
             None => {
@@ -33,18 +33,14 @@ impl NfsOperation for Commit4args {
 
         // unlock write cache & write file
 
-        let write_cache = &request
-            .file_manager()
-            .get_write_cache_handle(filehandle.clone())
-            .await
-            .unwrap();
+        let write_cache = request.get_writehandle_from_cache(filehandle.id).unwrap();
         // // TODO: this commits the whole cache, we should only commit the data up to the offset
         write_cache.commit().await;
 
-        request
-            .file_manager()
-            .touch_file(filehandle.id.clone())
-            .await;
+        // request
+        //     .file_manager()
+        //     .touch_file(filehandle.id.clone())
+        //     .await;
 
         request.drop_filehandle_from_cache(filehandle.id.clone());
         let boot_time = request.boot_time;

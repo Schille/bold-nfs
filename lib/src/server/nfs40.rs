@@ -29,9 +29,12 @@ pub struct NFS40Server;
 
 impl NFS40Server {
     async fn put_root_filehandle<'a>(&self, mut request: NfsRequest<'a>) -> NfsOpResponse<'a> {
-        match request.file_manager().get_root_filehandle().await {
-            Ok(filehandle) => {
-                let _ = request.set_filehandle_id(filehandle.id).await;
+        let file_manager = request.file_manager.clone();
+        let manager = file_manager.read().unwrap();
+
+        match manager.get_filehandle_by_path(&String::from("/")) {
+            Some(filehandle) => {
+                request.set_filehandle(filehandle.id);
                 NfsOpResponse {
                     request,
                     result: Some(NfsResOp4::Opputrootfh(PutRootFh4res {
@@ -40,14 +43,11 @@ impl NFS40Server {
                     status: NfsStat4::Nfs4Ok,
                 }
             }
-            Err(e) => {
-                error!("Err {:?}", e);
-                NfsOpResponse {
-                    request,
-                    result: None,
-                    status: NfsStat4::Nfs4errServerfault,
-                }
-            }
+            None => NfsOpResponse {
+                request,
+                result: None,
+                status: NfsStat4::Nfs4errServerfault,
+            },
         }
     }
 

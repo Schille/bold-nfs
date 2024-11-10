@@ -16,7 +16,7 @@ impl NfsOperation for Create4args {
             self, request
         );
 
-        let current_filehandle = request.current_filehandle();
+        let current_filehandle = request.current_filehandle_vfs();
         let filehandle = match current_filehandle {
             Some(filehandle) => filehandle,
             None => {
@@ -52,31 +52,18 @@ impl NfsOperation for Create4args {
                 let new_dir = current_dir.join(self.objname.clone()).unwrap();
                 let _ = new_dir.create_dir();
 
-                request.file_manager().touch_file(filehandle.id).await;
+                // request.file_manager().touch_file(filehandle.id).await;
+                let file_manager = request.file_manager.clone();
+                let mut wmanager = file_manager.write().unwrap();
 
-                let resp = request
-                    .file_manager()
-                    .get_filehandle_for_path(new_dir.as_str().to_string())
-                    .await;
-                let filehandle = match resp {
-                    Ok(filehandle) => filehandle,
-                    Err(e) => {
-                        debug!("FileManagerError {:?}", e);
-                        request.unset_filehandle();
-                        return NfsOpResponse {
-                            request,
-                            result: None,
-                            status: e.nfs_error,
-                        };
-                    }
-                };
-                request.set_filehandle(filehandle.clone());
+                let filehandle = wmanager.get_filehandle(&new_dir);
+                request.set_filehandle(filehandle.id);
 
                 (
                     ChangeInfo4 {
                         atomic: true,
-                        before: filehandle.attr_change,
-                        after: filehandle.attr_change,
+                        before: filehandle.attr_change(filehandle.version),
+                        after: filehandle.attr_change(filehandle.version),
                     },
                     Attrlist4::<FileAttr>::new(None),
                 )

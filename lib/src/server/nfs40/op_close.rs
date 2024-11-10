@@ -13,7 +13,7 @@ impl NfsOperation for Close4args {
             self, request
         );
 
-        let current_filehandle = request.current_filehandle().unwrap();
+        let current_filehandle = request.current_filehandle_vfs().unwrap();
         request.drop_filehandle_from_cache(current_filehandle.id);
 
         NfsOpResponse {

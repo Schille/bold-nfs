@@ -13,7 +13,7 @@ impl NfsOperation for Read4args {
             "Operation 25: READ - Read from File {:?}, with request {:?}",
             self, request
         );
-        let current_filehandle = request.current_filehandle();
+        let current_filehandle = request.current_filehandle_vfs();
         let filehandle = match current_filehandle {
             Some(filehandle) => filehandle,
             None => {

@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use tracing::{debug, error};
 
 use crate::server::{
-    filemanager::Filehandle,
+    filemanager::FilehandleVfs,
     nfs40::{ChangeInfo4, Open4res, Open4resok, OpenDelegation4, OPEN4_RESULT_CONFIRM},
     operation::NfsOperation,
     request::NfsRequest,
@@ -15,7 +15,7 @@ use bold_proto::nfs4_proto::{
 };
 
 async fn open_for_reading<'a>(file: &String, mut request: NfsRequest<'a>) -> NfsOpResponse<'a> {
-    let filehandle = request.current_filehandle();
+    let filehandle = request.current_filehandle_vfs();
     let path = &filehandle.unwrap().path;
 
     let fh_path = {
@@ -27,20 +27,19 @@ async fn open_for_reading<'a>(file: &String, mut request: NfsRequest<'a>) -> Nfs
     };
 
     debug!("open_for_reading {:?}", fh_path);
-    let filehandle = match request
-        .file_manager()
-        .get_filehandle_for_path(fh_path)
-        .await
-    {
-        Ok(filehandle) => filehandle,
-        Err(e) => {
-            error!("Err {:?}", e);
-            return NfsOpResponse {
-                request,
-                result: None,
-                status: e.nfs_error,
-            };
-        }
+
+    let file_manager = request.file_manager.clone();
+    let manager = file_manager.read().unwrap();
+    let filehandle = manager.get_filehandle_by_path(&fh_path);
+
+    let filehandle = if let Some(filehandle_vfs) = filehandle {
+        filehandle_vfs.id
+    } else {
+        return NfsOpResponse {
+            request,
+            result: None,
+            status: NfsStat4::Nfs4errStale,
+        };
     };
 
     request.set_filehandle(filehandle);
@@ -69,7 +68,7 @@ async fn open_for_reading<'a>(file: &String, mut request: NfsRequest<'a>) -> Nfs
 
 async fn open_for_writing<'a>(
     args: &Open4args,
-    filehandle: &Filehandle,
+    filehandle: &FilehandleVfs,
     file: &String,
     how: &CreateHow4,
     mut request: NfsRequest<'a>,
@@ -90,21 +89,20 @@ async fn open_for_writing<'a>(
 
     let filehandle = match how {
         CreateHow4::UNCHECKED4(_fattr) => {
-            match request
-                .file_manager()
-                .create_file(
-                    newfile_op.unwrap(),
-                    args.owner.clientid,
-                    args.owner.owner.clone(),
-                    args.share_access,
-                    args.share_deny,
-                    None,
-                )
-                .await
-            {
-                Ok(filehandle) => filehandle,
-                Err(e) => {
-                    error!("Err {:?}", e);
+            let file_manager = request.file_manager.clone();
+            let mut wmanager = file_manager.write().unwrap();
+
+            let filehandle_vfs = wmanager.create_file(
+                &newfile_op.unwrap(),
+                args.owner.clientid,
+                args.owner.owner.clone(),
+                args.share_access,
+                args.share_deny,
+            );
+
+            match filehandle_vfs {
+                Some(filehandle) => filehandle,
+                None => {
                     return NfsOpResponse {
                         request,
                         result: None,
@@ -114,21 +112,21 @@ async fn open_for_writing<'a>(
             }
         }
         CreateHow4::EXCLUSIVE4(verifier) => {
-            match request
-                .file_manager()
-                .create_file(
-                    newfile_op.unwrap(),
-                    args.owner.clientid,
-                    args.owner.owner.clone(),
-                    args.share_access,
-                    args.share_deny,
-                    Some(*verifier),
-                )
-                .await
-            {
-                Ok(filehandle) => filehandle,
-                Err(e) => {
-                    error!("Err {:?}", e);
+            let file_manager = request.file_manager.clone();
+            let mut wmanager = file_manager.write().unwrap();
+
+            let filehandle_vfs = wmanager.create_file(
+                &newfile_op.unwrap(),
+                args.owner.clientid,
+                args.owner.owner.clone(),
+                args.share_access,
+                args.share_deny,
+            );
+
+
+            match filehandle_vfs {
+                Some(filehandle) => filehandle,
+                None => {
                     return NfsOpResponse {
                         request,
                         result: None,
@@ -147,7 +145,7 @@ async fn open_for_writing<'a>(
         }
     };
 
-    request.set_filehandle(filehandle.clone());
+    request.set_filehandle(filehandle.id.clone());
     // we expect this filehandle to have one lock (for the shared reservation)
     let lock = &filehandle.locks[0];
 
@@ -182,7 +180,7 @@ impl NfsOperation for Open4args {
             self, request
         );
         // open sets the current filehandle to the looked up filehandle
-        let current_filehandle = request.current_filehandle();
+        let current_filehandle = request.current_filehandle_vfs();
         let filehandle = match current_filehandle {
             Some(filehandle) => filehandle,
             None => {

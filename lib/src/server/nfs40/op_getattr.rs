@@ -14,7 +14,7 @@ impl NfsOperation for Getattr4args {
             "Operation 9: GETATTR - Get Attributes {:?}, with request {:?}",
             self, request
         );
-        let filehandle = request.current_filehandle();
+        let filehandle = request.current_filehandle_vfs();
         match filehandle {
             None => {
                 error!("None filehandle");
@@ -28,9 +28,10 @@ impl NfsOperation for Getattr4args {
                 };
             }
             Some(filehandle) => {
-                let resp = request
-                    .file_manager()
-                    .filehandle_attrs(&self.attr_request, &filehandle);
+                let file_manager = request.file_manager.clone();
+                let rmanager = file_manager.read().unwrap();
+
+                let resp = rmanager.filehandle_attrs(&self.attr_request, &filehandle);
 
                 let (answer_attrs, attrs) = match resp {
                     Some(inner) => inner,

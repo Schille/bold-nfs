@@ -2,23 +2,18 @@ use std::io::{Cursor, Seek, SeekFrom, Write};
 
 use tokio::sync::mpsc;
 
-use super::{handle::WriteCacheMessage, FileManagerHandle, Filehandle};
+use super::{handle::WriteCacheMessage, FilehandleVfs};
 
 #[derive(Debug)]
 pub struct WriteCache {
     pub filelike: Cursor<Vec<u8>>,
     pub changed: bool,
-    pub filehandle: Filehandle,
+    pub filehandle: FilehandleVfs,
     pub receiver: mpsc::Receiver<WriteCacheMessage>,
-    pub filemanager: FileManagerHandle,
 }
 
 impl WriteCache {
-    pub fn new(
-        receiver: mpsc::Receiver<WriteCacheMessage>,
-        filehandle: Filehandle,
-        filemanager: FileManagerHandle,
-    ) -> Self {
+    pub fn new(receiver: mpsc::Receiver<WriteCacheMessage>, filehandle: FilehandleVfs) -> Self {
         let mut filelike = Cursor::new(Vec::new());
         let mut file = filehandle.file.open_file().unwrap();
         file.read_to_end(&mut filelike.get_mut()).unwrap();
@@ -27,7 +22,6 @@ impl WriteCache {
             changed: false,
             filehandle,
             receiver,
-            filemanager,
         }
     }
 
@@ -60,14 +54,14 @@ impl WriteCache {
 
                     if count > 0 {
                         file.flush().unwrap();
-                        self.filemanager
-                            .touch_file(self.filehandle.id.clone())
-                            .await;
+                        // self.filemanager
+                        //     .touch_file(self.filehandle.id.clone())
+                        //     .await;
                     }
                 }
-                self.filemanager
-                    .drop_write_cache_handle(self.filehandle.id.clone())
-                    .await;
+                // self.filemanager
+                //     .drop_write_cache_handle(self.filehandle.id.clone())
+                //     .await;
             }
         }
     }

@@ -17,7 +17,7 @@ impl NfsOperation for Lookup4args {
             "Operation 15: LOOKUP - Look Up Filename {:?}, with request {:?}",
             self, request
         );
-        let current_fh = request.current_filehandle();
+        let current_fh = request.current_filehandle_vfs();
         let filehandle = match current_fh {
             Some(filehandle) => filehandle,
             None => {
@@ -40,25 +40,41 @@ impl NfsOperation for Lookup4args {
 
         debug!("lookup {:?}", path);
 
-        let resp = request.file_manager().get_filehandle_for_path(path).await;
-        let filehandle = match resp {
-            Ok(filehandle) => filehandle,
-            Err(e) => {
+        let file_manager = request.file_manager.clone();
+        let rmanager = file_manager.read().unwrap();
+        let fh = rmanager.get_filehandle_by_path(&path);
+        drop(rmanager);
+
+        let filehandle = match fh {
+            Some(filehandle) => Some(filehandle),
+            None => {
                 // a missing file during lookup is not an error
-                debug!("FileManagerError {:?}", e);
-                request.unset_filehandle();
-                return NfsOpResponse {
-                    request,
-                    result: Some(NfsResOp4::Oplookup(Lookup4res {
-                        status: e.nfs_error.clone(),
-                    })),
-                    status: e.nfs_error,
-                };
+
+                let lookup_miss = filehandle.file.join(path).unwrap();
+                if lookup_miss.exists().unwrap() {
+                    let mut wmanager = file_manager.write().unwrap();
+                    let fh = wmanager.get_filehandle(&lookup_miss);
+                    drop(wmanager);
+                    Some(fh)
+                } else {
+                    None
+                }
             }
         };
 
+        if filehandle.is_none() {
+            request.unset_filehandle();
+            return NfsOpResponse {
+                request,
+                result: Some(NfsResOp4::Oplookup(Lookup4res {
+                    status: NfsStat4::Nfs4errNoent,
+                })),
+                status: NfsStat4::Nfs4errNoent,
+            };
+        }
+
         // lookup sets the current filehandle to the looked up filehandle
-        request.set_filehandle(filehandle);
+        let _ = request.set_filehandle(filehandle.unwrap().id);
 
         NfsOpResponse {
             request,
@@ -85,11 +101,14 @@ mod integration_tests {
     #[traced_test]
     async fn test_lookup() {
         let request = create_nfs40_server(Some(create_fake_fs())).await;
-        let fh = request.file_manager().get_root_filehandle().await;
+        let file_manager = request.file_manager.clone();
+        let manager = file_manager.read().unwrap();
+        let fh = manager.get_filehandle_by_path(&String::from("/"));
 
         let putfh_args = PutFh4args {
             object: fh.clone().unwrap().id,
         };
+        drop(manager);
         let putfh_request = putfh_args.execute(request).await;
 
         let args = Lookup4args {
