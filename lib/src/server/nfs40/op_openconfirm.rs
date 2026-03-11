@@ -16,7 +16,7 @@ impl NfsOperation for OpenConfirm4args {
         );
         // we expect filehandle to have one lock (for the shared reservation)
         let fh = request.current_filehandle_vfs().unwrap();
-        let file_manager  = request.file_manager.clone();
+        let file_manager = request.file_manager.clone();
         let rmanager = file_manager.read().unwrap();
         let fh = rmanager.attach_locks(fh);
         let lock = fh.locks[0].clone();

@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use bytes::Bytes;
 use tracing::debug;
 
 use crate::server::{
@@ -7,11 +8,12 @@ use crate::server::{
 };
 
 use bold_proto::nfs4_proto::{
-    NfsResOp4, NfsStat4, SetClientId4args, SetClientId4res, SetClientId4resok,
+    NfsResOp4, NfsStat4, SetClientId4res, SetClientId4resok,
 };
+use bold_proto::nfs4_gen::xdr::SETCLIENTID4args;
 
 #[async_trait]
-impl NfsOperation for SetClientId4args {
+impl NfsOperation for SETCLIENTID4args<Bytes> {
     /// The client uses the SETCLIENTID operation to notify the server of its
     /// intention to use a particular client identifier, callback, and
     /// callback_ident for subsequent requests that entail creating lock,
@@ -25,10 +27,11 @@ impl NfsOperation for SetClientId4args {
         );
         let callback = ClientCallback {
             program: self.callback.cb_program,
-            rnetid: self.callback.cb_location.rnetid.clone(),
-            raddr: self.callback.cb_location.raddr.clone(),
+            rnetid: self.callback.cb_location.r_netid.clone(),
+            raddr: self.callback.cb_location.r_addr.clone(),
             callback_ident: self.callback_ident,
         };
+
 
         let res = request
             .client_manager()

@@ -1,14 +1,21 @@
+#![feature(type_alias_impl_trait)]
+
+pub mod nfs4;
 pub mod nfs4_proto;
 pub mod rpc_proto;
+pub mod nfs4_gen;
+mod tests;
 pub mod utils;
 
-use bytes::{Buf, BytesMut};
+use bytes::{Buf, Bytes, BytesMut};
+pub use onc_rpc::{RpcMessage, CallBody};
 use serde_xdr::{from_reader, to_writer, CompatDeserializationError};
 use std::io::Cursor;
 use tokio_util::codec::{Decoder, Encoder};
 // use tracing::trace;
 
 use self::rpc_proto::{RpcCallMsg, RpcReplyMsg};
+
 
 #[derive(Debug)]
 pub struct XDRProtoCodec {}
@@ -28,7 +35,7 @@ impl XDRProtoCodec {
 }
 
 impl Decoder for XDRProtoCodec {
-    type Item = RpcCallMsg;
+    type Item = RpcMessage<Bytes, Bytes>;
     type Error = std::io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -73,10 +80,14 @@ impl Decoder for XDRProtoCodec {
             //     "Finishing Reading fragment"
             // );
         }
-
-        RpcCallMsg::from_bytes(message_data)
+        let mem = Bytes::from(message_data);
+        RpcMessage::try_from(mem)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
             .map(Some)
+
+        // RpcCallMsg::from_bytes(message_data)
+        //     .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+        //     .map(Some)
     }
 }
 

@@ -7,10 +7,12 @@ pub mod response;
 
 use async_trait::async_trait;
 
+use bytes::Bytes;
 use request::NfsRequest;
 use tracing::debug;
 
-use bold_proto::rpc_proto::{CallBody, MsgType, ReplyBody, RpcCallMsg, RpcReplyMsg};
+use bold_proto::rpc_proto::{MsgType, ReplyBody, RpcReplyMsg};
+use bold_proto::{RpcMessage, CallBody};
 
 #[async_trait]
 pub trait NfsProtoImpl: Sync {
@@ -22,13 +24,13 @@ pub trait NfsProtoImpl: Sync {
 
     async fn null<'a>(
         &self,
-        _: CallBody,
+        _: &CallBody<Bytes, Bytes>,
         mut request: NfsRequest<'a>,
     ) -> (NfsRequest<'a>, ReplyBody);
 
     async fn compound<'a>(
         &self,
-        msg: CallBody,
+        msg: &CallBody<Bytes, Bytes>,
         mut request: NfsRequest<'a>,
     ) -> (NfsRequest<'a>, ReplyBody);
 }
@@ -48,15 +50,15 @@ where
 
     pub async fn call(
         &self,
-        rpc_call_message: RpcCallMsg,
+        rpc_call_message: RpcMessage<Bytes, Bytes>,
         request: NfsRequest<'_>,
     ) -> Box<RpcReplyMsg> {
         debug!("{:?}", rpc_call_message);
 
-        match rpc_call_message.body {
-            MsgType::Call(call_body) => {
+        match rpc_call_message.call_body() {
+            Some(call_body) => {
                 // TODO: check nfs protocol version
-                let (request, body) = match call_body.proc {
+                let (request, body) = match call_body.procedure() {
                     0 => self.server.null(call_body, request).await,
                     1 => self.server.compound(call_body, request).await,
                     _ => {
@@ -67,7 +69,7 @@ where
                 // end request
                 request.close().await;
                 let rpc_reply_message = RpcReplyMsg {
-                    xid: rpc_call_message.xid,
+                    xid: rpc_call_message.xid(),
                     body: MsgType::Reply(body),
                 };
                 debug!("{:?}", rpc_reply_message);

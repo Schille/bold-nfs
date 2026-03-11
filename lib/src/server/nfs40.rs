@@ -1,7 +1,11 @@
 use async_trait::async_trait;
+use bold_proto::nfs4_gen::xdr::COMPOUND4args;
+use bytes::Bytes;
 
 use super::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
 use bold_proto::{nfs4_proto::*, rpc_proto::*};
+use bold_proto::CallBody;
+use bold_proto::nfs4_gen::xdr::nfs_argop4;
 
 mod op_access;
 mod op_close;
@@ -92,7 +96,7 @@ impl NfsProtoImpl for NFS40Server {
         0
     }
 
-    async fn null<'a>(&self, _: CallBody, request: NfsRequest<'a>) -> (NfsRequest<'a>, ReplyBody) {
+    async fn null<'a>(&self, _: &CallBody<Bytes, Bytes>, request: NfsRequest<'a>) -> (NfsRequest<'a>, ReplyBody) {
         (
             request,
             ReplyBody::MsgAccepted(AcceptedReply {
@@ -108,71 +112,73 @@ impl NfsProtoImpl for NFS40Server {
 
     async fn compound<'a>(
         &self,
-        msg: CallBody,
+        msg: &CallBody<Bytes, Bytes>,
         mut request: NfsRequest<'a>,
     ) -> (NfsRequest<'a>, ReplyBody) {
         let mut last_status = NfsStat4::Nfs4Ok;
-        let res = match msg.args {
-            Some(args) => {
+        let payload = msg.payload();
+        let compound_args = COMPOUND4args::try_from(*payload);
+        let res = match compound_args {
+            Ok(args) => {
                 let mut resarray = Vec::with_capacity(args.argarray.len());
                 // The server will process the COMPOUND procedure by evaluating each of
                 // the operations within the COMPOUND procedure in order.
                 for arg in args.argarray {
                     let response = match arg {
                         // these should never be called
-                        NfsArgOp::OpUndef0 | NfsArgOp::OpUndef1 | NfsArgOp::OpUndef2 => {
-                            self.operation_not_supported(request)
-                        }
+                        // nfs_argop4::OpUnef0 | nfs_argop4::OpUndef1 | nfs_argop4::OpUndef2 => {
+                        //     self.operation_not_supported(request)
+                        // }
                         // these are actual operations
-                        NfsArgOp::Opgetfh(_) => self.get_current_filehandle(request),
-                        NfsArgOp::Opsetclientid(args) => args.execute(request).await,
-                        NfsArgOp::OpAccess(args) => args.execute(request).await,
-                        NfsArgOp::Opclose(args) => args.execute(request).await,
-                        NfsArgOp::Opgetattr(args) => args.execute(request).await,
-                        NfsArgOp::Oplookup(args) => args.execute(request).await,
-                        NfsArgOp::Opopen(args) => args.execute(request).await,
-                        NfsArgOp::OpopenConfirm(args) => args.execute(request).await,
-                        NfsArgOp::Opputfh(args) => args.execute(request).await,
-                        NfsArgOp::Opputrootfh(_) => self.put_root_filehandle(request).await,
-                        NfsArgOp::Opread(args) => args.execute(request).await,
-                        NfsArgOp::Opreaddir(args) => args.execute(request).await,
-                        NfsArgOp::Oprenew(args) => args.execute(request).await,
-                        NfsArgOp::OpsetclientidConfirm(args) => args.execute(request).await,
-                        NfsArgOp::Opsetattr(args) => args.execute(request).await,
-                        NfsArgOp::Opremove(args) => args.execute(request).await,
-                        NfsArgOp::Opwrite(args) => args.execute(request).await,
+                        nfs_argop4::OP_GETFH => self.get_current_filehandle(request),
+                        nfs_argop4::OP_SETCLIENTID(args) => args.execute(request).await,
+                        nfs_argop4::OpAccess(args) => args.execute(request).await,
+                        nfs_argop4::Opclose(args) => args.execute(request).await,
+                        nfs_argop4::Opgetattr(args) => args.execute(request).await,
+                        nfs_argop4::Oplookup(args) => args.execute(request).await,
+                        nfs_argop4::Opopen(args) => args.execute(request).await,
+                        nfs_argop4::OpopenConfirm(args) => args.execute(request).await,
+                        nfs_argop4::Opputfh(args) => args.execute(request).await,
+                        nfs_argop4::Opputrootfh(_) => self.put_root_filehandle(request).await,
+                        nfs_argop4::Opread(args) => args.execute(request).await,
+                        nfs_argop4::Opreaddir(args) => args.execute(request).await,
+                        nfs_argop4::Oprenew(args) => args.execute(request).await,
+                        nfs_argop4::OpsetclientidConfirm(args) => args.execute(request).await,
+                        nfs_argop4::Opsetattr(args) => args.execute(request).await,
+                        nfs_argop4::Opremove(args) => args.execute(request).await,
+                        nfs_argop4::Opwrite(args) => args.execute(request).await,
 
-                        NfsArgOp::Opcommit(args) => args.execute(request).await,
-                        NfsArgOp::Opcreate(args) => args.execute(request).await,
+                        nfs_argop4::Opcommit(args) => args.execute(request).await,
+                        nfs_argop4::Opcreate(args) => args.execute(request).await,
 
-                        NfsArgOp::Opdelegpurge(_) => self.operation_not_supported(request),
-                        NfsArgOp::Opdelegreturn(_) => self.operation_not_supported(request),
+                        nfs_argop4::Opdelegpurge(_) => self.operation_not_supported(request),
+                        nfs_argop4::Opdelegreturn(_) => self.operation_not_supported(request),
 
-                        NfsArgOp::Oplink(_) => self.operation_not_supported(request),
-                        NfsArgOp::Oplock(_) => self.operation_not_supported(request),
-                        NfsArgOp::Oplockt(_) => self.operation_not_supported(request),
-                        NfsArgOp::Oplocku(_) => self.operation_not_supported(request),
+                        nfs_argop4::Oplink(_) => self.operation_not_supported(request),
+                        nfs_argop4::Oplock(_) => self.operation_not_supported(request),
+                        nfs_argop4::Oplockt(_) => self.operation_not_supported(request),
+                        nfs_argop4::Oplocku(_) => self.operation_not_supported(request),
 
-                        NfsArgOp::Oplookupp(_) => self.operation_not_supported(request),
-                        NfsArgOp::Opnverify(_) => self.operation_not_supported(request),
+                        nfs_argop4::Oplookupp(_) => self.operation_not_supported(request),
+                        nfs_argop4::Opnverify(_) => self.operation_not_supported(request),
 
-                        NfsArgOp::Opopenattr(_) => self.operation_not_supported(request),
+                        nfs_argop4::Opopenattr(_) => self.operation_not_supported(request),
 
-                        NfsArgOp::OpopenDowngrade(_) => self.operation_not_supported(request),
+                        nfs_argop4::OpopenDowngrade(_) => self.operation_not_supported(request),
 
-                        NfsArgOp::Opputpubfh(_) => self.operation_not_supported(request),
+                        nfs_argop4::Opputpubfh(_) => self.operation_not_supported(request),
 
-                        NfsArgOp::Opreadlink(_) => self.operation_not_supported(request),
+                        nfs_argop4::Opreadlink(_) => self.operation_not_supported(request),
 
-                        NfsArgOp::Oprename(_) => self.operation_not_supported(request),
+                        nfs_argop4::Oprename(_) => self.operation_not_supported(request),
 
-                        NfsArgOp::Oprestorefh(_) => self.operation_not_supported(request),
-                        NfsArgOp::Opsavefh(_) => self.operation_not_supported(request),
-                        NfsArgOp::OpSecinfo(_) => self.operation_not_supported(request),
+                        nfs_argop4::Oprestorefh(_) => self.operation_not_supported(request),
+                        nfs_argop4::Opsavefh(_) => self.operation_not_supported(request),
+                        nfs_argop4::OpSecinfo(_) => self.operation_not_supported(request),
 
-                        NfsArgOp::Opverify(_) => self.operation_not_supported(request),
+                        nfs_argop4::Opverify(_) => self.operation_not_supported(request),
 
-                        NfsArgOp::OpreleaseLockOwner(_) => self.operation_not_supported(request),
+                        nfs_argop4::OpreleaseLockOwner(_) => self.operation_not_supported(request),
                     };
                     // match the result of the operation, pass on success, return on error
                     let res = response.result;
@@ -204,7 +210,7 @@ impl NfsProtoImpl for NFS40Server {
                 }
                 resarray
             }
-            None => Vec::new(),
+            _ => Vec::new(),
         };
 
         (

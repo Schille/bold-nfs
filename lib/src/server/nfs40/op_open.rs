@@ -123,7 +123,6 @@ async fn open_for_writing<'a>(
                 args.share_deny,
             );
 
-
             match filehandle_vfs {
                 Some(filehandle) => filehandle,
                 None => {

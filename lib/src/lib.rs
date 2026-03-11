@@ -68,7 +68,7 @@ impl NFSServer {
                             let mut nfs_transport = Framed::new(stream, XDRProtoCodec::new());
                             // clone NFS server to move into the pipeline and actor connects with shared state
                             // a per-client based filehandle cache
-                            let mut filehandle_cache = HashMap::new();
+                            let mut writehandle_cache = HashMap::new();
 
                             loop {
                                 let msg = nfs_transport.next().await;
@@ -80,7 +80,7 @@ impl NFSServer {
                                             client_manager_handle.clone(),
                                             self.boot_time,
                                             filehandle_manager.clone(),
-                                            Some(&mut filehandle_cache),
+                                            Some(&mut writehandle_cache),
                                         );
                                         // ToDo implement and select correct version of NFS protocol, this services all with minor version 0
                                         let nfs_protocol = self.service_0.as_ref().unwrap();
