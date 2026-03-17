@@ -1,9 +1,12 @@
 use async_trait::async_trait;
+use bytes::Bytes;
 use tracing::{debug, error};
 
 use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
 
-use bold_proto::nfs4_proto::{Commit4args, Commit4res, Commit4resok, NfsResOp4, NfsStat4};
+use bold_proto::nfs4_proto::xdr::{
+    nfs_resop4, nfsstat4, verifier4, COMMIT4args, COMMIT4res, COMMIT4resok,
+};
 
 fn verifier_from_boot(boot_time: &u64) -> [u8; 8] {
     let mut verifier = [0; 8];
@@ -12,7 +15,7 @@ fn verifier_from_boot(boot_time: &u64) -> [u8; 8] {
 }
 
 #[async_trait]
-impl NfsOperation for Commit4args {
+impl NfsOperation for COMMIT4args {
     async fn execute<'a>(&self, mut request: NfsRequest<'a>) -> NfsOpResponse<'a> {
         debug!(
             "Operation 5: COMMIT - Commit Cached Data {:?}, with request {:?}",
@@ -26,14 +29,14 @@ impl NfsOperation for Commit4args {
                 return NfsOpResponse {
                     request,
                     result: None,
-                    status: NfsStat4::Nfs4errFhexpired,
+                    status: nfsstat4::NFS4ERR_FHEXPIRED,
                 };
             }
         };
 
         // unlock write cache & write file
 
-        let write_cache = request.get_writehandle_from_cache(filehandle.id).unwrap();
+        let write_cache = request.get_writehandle_from_cache(&filehandle.id).unwrap();
         // // TODO: this commits the whole cache, we should only commit the data up to the offset
         write_cache.commit().await;
 
@@ -42,14 +45,14 @@ impl NfsOperation for Commit4args {
         //     .touch_file(filehandle.id.clone())
         //     .await;
 
-        request.drop_filehandle_from_cache(filehandle.id.clone());
+        request.drop_filehandle_from_cache(&filehandle.id);
         let boot_time = request.boot_time;
         NfsOpResponse {
             request,
-            result: Some(NfsResOp4::Opcommit(Commit4res::Resok4(Commit4resok {
-                writeverf: verifier_from_boot(&boot_time),
+            result: Some(nfs_resop4::OP_COMMIT(COMMIT4res::NFS4_OK(COMMIT4resok {
+                writeverf: verifier4(Bytes::copy_from_slice(&verifier_from_boot(&boot_time))),
             }))),
-            status: NfsStat4::Nfs4Ok,
+            status: nfsstat4::NFS4_OK,
         }
     }
 }

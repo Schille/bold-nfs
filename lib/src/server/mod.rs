@@ -11,8 +11,10 @@ use bytes::Bytes;
 use request::NfsRequest;
 use tracing::debug;
 
-use bold_proto::rpc_proto::{MsgType, ReplyBody, RpcReplyMsg};
-use bold_proto::{RpcMessage, CallBody};
+use bold_proto::{
+    onc_rpc::{MessageType, ReplyBody, RpcMessage},
+    CallBody,
+};
 
 #[async_trait]
 pub trait NfsProtoImpl: Sync {
@@ -26,13 +28,13 @@ pub trait NfsProtoImpl: Sync {
         &self,
         _: &CallBody<Bytes, Bytes>,
         mut request: NfsRequest<'a>,
-    ) -> (NfsRequest<'a>, ReplyBody);
+    ) -> (NfsRequest<'a>, ReplyBody<Bytes, Bytes>);
 
     async fn compound<'a>(
         &self,
         msg: &CallBody<Bytes, Bytes>,
         mut request: NfsRequest<'a>,
-    ) -> (NfsRequest<'a>, ReplyBody);
+    ) -> (NfsRequest<'a>, ReplyBody<Bytes, Bytes>);
 }
 
 #[derive(Debug, Clone)]
@@ -52,7 +54,7 @@ where
         &self,
         rpc_call_message: RpcMessage<Bytes, Bytes>,
         request: NfsRequest<'_>,
-    ) -> Box<RpcReplyMsg> {
+    ) -> Box<RpcMessage<Bytes, Bytes>> {
         debug!("{:?}", rpc_call_message);
 
         match rpc_call_message.call_body() {
@@ -68,10 +70,8 @@ where
 
                 // end request
                 request.close().await;
-                let rpc_reply_message = RpcReplyMsg {
-                    xid: rpc_call_message.xid(),
-                    body: MsgType::Reply(body),
-                };
+                let rpc_reply_message =
+                    RpcMessage::new(rpc_call_message.xid(), MessageType::Reply(body));
                 debug!("{:?}", rpc_reply_message);
                 Box::new(rpc_reply_message)
             }

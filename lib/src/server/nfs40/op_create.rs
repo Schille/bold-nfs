@@ -1,15 +1,17 @@
 use async_trait::async_trait;
+use bytes::Bytes;
 use tracing::{debug, error};
 
 use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
 
-use bold_proto::nfs4_proto::{
-    Attrlist4, ChangeInfo4, Create4args, Create4res, Create4resok, Createtype4, FileAttr,
-    NfsResOp4, NfsStat4,
+use bold_proto::nfs4_proto::xdr::{
+    attrlist4, bitmap4, change_info4, changeid4, createtype4, nfs_resop4, nfsstat4, CREATE4args,
+    CREATE4res, CREATE4resok,
 };
+use bold_proto::nfs4_utils::FileAttr;
 
 #[async_trait]
-impl NfsOperation for Create4args {
+impl NfsOperation for CREATE4args<Bytes> {
     async fn execute<'a>(&self, mut request: NfsRequest<'a>) -> NfsOpResponse<'a> {
         debug!(
             "Operation 6: CREATE - Create a Non-regular File Object {:?}, with request {:?}",
@@ -24,32 +26,32 @@ impl NfsOperation for Create4args {
                 return NfsOpResponse {
                     request,
                     result: None,
-                    status: NfsStat4::Nfs4errFhexpired,
+                    status: nfsstat4::NFS4ERR_FHEXPIRED,
                 };
             }
         };
 
-        if self.objname.len() == 0 {
+        if self.objname.0 .0.len() == 0 {
             // If the objname is of zero length, NFS4ERR_INVAL will be returned.
             // The objname is also subject to the normal UTF-8, character support,
             // and name checks.  See Section 12.7 for further discussion.
             return NfsOpResponse {
                 request,
                 result: None,
-                status: NfsStat4::Nfs4errInval,
+                status: nfsstat4::NFS4ERR_INVAL,
             };
         }
 
         let (cinfo, attrset) = match self.objtype {
             // TODO support links
             // LinkData(vec) => todo!(),
-            Createtype4::Nf4dir => {
+            createtype4::NF4DIR => {
                 let current_dir = if filehandle.file.is_file().unwrap() {
                     &filehandle.file.parent()
                 } else {
                     &filehandle.file
                 };
-                let new_dir = current_dir.join(self.objname.clone()).unwrap();
+                let new_dir = current_dir.join(self.objname.0 .0.clone()).unwrap();
                 let _ = new_dir.create_dir();
 
                 // request.file_manager().touch_file(filehandle.id).await;
@@ -57,15 +59,15 @@ impl NfsOperation for Create4args {
                 let mut wmanager = file_manager.write().unwrap();
 
                 let filehandle = wmanager.get_filehandle(&new_dir);
-                request.set_filehandle(filehandle.id);
+                request.set_filehandle(&filehandle.id);
 
                 (
-                    ChangeInfo4 {
+                    change_info4 {
                         atomic: true,
-                        before: filehandle.attr_change(filehandle.version),
-                        after: filehandle.attr_change(filehandle.version),
+                        before: changeid4(filehandle.attr_change(filehandle.version)),
+                        after: changeid4(filehandle.attr_change(filehandle.version)),
                     },
-                    Attrlist4::<FileAttr>::new(None),
+                    bitmap4(Vec::new()),
                 )
             }
             _ => {
@@ -73,18 +75,18 @@ impl NfsOperation for Create4args {
                 return NfsOpResponse {
                     request,
                     result: None,
-                    status: NfsStat4::Nfs4errBadtype,
+                    status: nfsstat4::NFS4ERR_BADTYPE,
                 };
             }
         };
 
         NfsOpResponse {
             request,
-            result: Some(NfsResOp4::Opcreate(Create4res::Resok4(Create4resok {
+            result: Some(nfs_resop4::OP_CREATE(CREATE4res::NFS4_OK(CREATE4resok {
                 cinfo,
                 attrset,
             }))),
-            status: NfsStat4::Nfs4Ok,
+            status: nfsstat4::NFS4_OK,
         }
     }
 }

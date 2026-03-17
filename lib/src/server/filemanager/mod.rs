@@ -1,11 +1,15 @@
 use std::collections::HashMap;
 
-use bold_proto::nfs4_proto::{
-    Attrlist4, FileAttr, FileAttrValue, Fsid4, NfsFh4, NfsLease4, NfsStat4, ACL4_SUPPORT_ALLOW_ACL,
-    FH4_VOLATILE_ANY, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR,
+use bold_proto::{
+    nfs4_proto::xdr::{
+        attrlist4, changeid4, fsid4, nfs_fh4, nfs_lease4, nfsstat4, utf8str_cs,
+        ACL4_SUPPORT_ALLOW_ACL, FH4_VOLATILE_ANY, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR,
+    },
+    nfs4_utils::{FileAttr, FileAttrValue},
 };
 
 mod filehandle;
+use bytes::Bytes;
 pub use filehandle::{FilehandleDb, FilehandleVfs};
 pub use handle::{FileManagerHandle, WriteCacheHandle};
 mod caching;
@@ -20,7 +24,7 @@ use vfs::VfsPath;
 #[derive(Debug)]
 pub struct FileManager {
     pub root: VfsPath,
-    pub lease_time: u32,
+    pub lease_time: nfs_lease4,
     pub hard_link_support: bool,
     pub symlink_support: bool,
     pub unique_handles: bool,
@@ -34,7 +38,7 @@ pub struct FileManager {
     // this field trackes a sequence number for stateids
     pub next_stateid_id: u64,
     pub boot_time: u64,
-    pub cachedb: HashMap<NfsFh4, WriteCacheHandle>,
+    pub cachedb: HashMap<nfs_fh4<Bytes>, WriteCacheHandle>,
 }
 
 impl FileManager {
@@ -44,7 +48,7 @@ impl FileManager {
         let mut fmanager = FileManager {
             root: root.clone(),
             // lease time in seconds
-            lease_time: 60,
+            lease_time: nfs_lease4(60),
             hard_link_support: false,
             symlink_support: false,
             unique_handles: false,
@@ -278,7 +282,7 @@ impl FileManager {
         id.try_into().unwrap()
     }
 
-    fn get_filehandle_id(&mut self, file: &VfsPath) -> NfsFh4 {
+    fn get_filehandle_id(&mut self, file: &VfsPath) -> nfs_fh4<Bytes> {
         // if there is already a filehandle for this path, return it
         let mut path = file.as_str().to_string();
         if path.is_empty() {
@@ -299,10 +303,10 @@ impl FileManager {
 
         debug!("created new filehandle id: {:?}", id);
         self.next_fh_id += 1;
-        id.try_into().expect("Cannot convert Vec to NfsFh4")
+        nfs_fh4(Bytes::from_iter(id))
     }
 
-    fn get_filehandle_by_id(&mut self, id: &NfsFh4) -> Option<FilehandleVfs> {
+    fn get_filehandle_by_id(&mut self, id: &nfs_fh4<Bytes>) -> Option<FilehandleVfs> {
         let fh = self.fhdb.get_by_id(id);
         if let Some(fh) = fh {
             if fh.file.exists().unwrap() {
@@ -349,7 +353,7 @@ impl FileManager {
         WriteCacheHandle::new(filehandle.clone())
     }
 
-    pub fn drop_cache_handle(&mut self, filehandle_id: &NfsFh4) {
+    pub fn drop_cache_handle(&mut self, filehandle_id: &nfs_fh4<Bytes>) {
         if self.cachedb.contains_key(filehandle_id) {
             self.cachedb.remove(filehandle_id);
         }
@@ -362,9 +366,9 @@ impl FileManager {
     pub fn set_attr(
         &self,
         filehandle: &FilehandleVfs,
-        attr_vals: &Attrlist4<FileAttrValue>,
-    ) -> Attrlist4<FileAttr> {
-        let mut attrsset = Attrlist4::<FileAttr>::new(None);
+        attr_vals: &Vec<FileAttrValue>,
+    ) -> Vec<FileAttr> {
+        let mut attrsset = Vec::new();
         for attr in attr_vals.iter() {
             match attr {
                 FileAttrValue::Size(args) => {
@@ -390,16 +394,18 @@ impl FileManager {
 
     pub fn filehandle_attrs(
         &self,
-        attr_request: &Vec<FileAttr>,
+        attr_request: Vec<FileAttr>,
         filehandle: &FilehandleVfs,
-    ) -> Option<(Attrlist4<FileAttr>, Attrlist4<FileAttrValue>)> {
-        let mut answer_attrs = Attrlist4::<FileAttr>::new(None);
-        let mut attrs = Attrlist4::<FileAttrValue>::new(None);
+    ) -> Option<(Vec<FileAttr>, Vec<FileAttrValue>)> {
+        let mut answer_attrs = Vec::new();
+        let mut attrs = Vec::new();
 
         for fileattr in attr_request {
             match fileattr {
                 FileAttr::SupportedAttrs => {
-                    attrs.push(FileAttrValue::SupportedAttrs(self.attr_supported_attrs()));
+                    attrs.push(FileAttrValue::SupportedAttrs(
+                        self.attr_supported_attrs().into(),
+                    ));
                     answer_attrs.push(FileAttr::SupportedAttrs);
                 }
                 FileAttr::Type => {
@@ -411,9 +417,9 @@ impl FileManager {
                     answer_attrs.push(FileAttr::LeaseTime);
                 }
                 FileAttr::Change => {
-                    attrs.push(FileAttrValue::Change(
+                    attrs.push(FileAttrValue::Change(changeid4(
                         filehandle.attr_change(filehandle.version),
-                    ));
+                    )));
                     answer_attrs.push(FileAttr::Change);
                 }
                 FileAttr::Size => {
@@ -467,11 +473,13 @@ impl FileManager {
                     answer_attrs.push(FileAttr::Numlinks);
                 }
                 FileAttr::Owner => {
-                    attrs.push(FileAttrValue::Owner(filehandle.attr_owner()));
+                    attrs.push(FileAttrValue::Owner(utf8str_cs(filehandle.attr_owner())));
                     answer_attrs.push(FileAttr::Owner);
                 }
                 FileAttr::OwnerGroup => {
-                    attrs.push(FileAttrValue::OwnerGroup(filehandle.attr_owner_group()));
+                    attrs.push(FileAttrValue::OwnerGroup(utf8str_cs(
+                        filehandle.attr_owner_group(),
+                    )));
                     answer_attrs.push(FileAttr::OwnerGroup);
                 }
                 FileAttr::SpaceUsed => {
@@ -502,23 +510,23 @@ impl FileManager {
         Some((answer_attrs, attrs))
     }
 
-    pub fn attr_lease_time(&self) -> NfsLease4 {
-        self.lease_time
+    pub fn attr_lease_time(&self) -> nfs_lease4 {
+        self.lease_time.clone()
     }
 
-    pub fn attr_rdattr_error(&self) -> NfsStat4 {
+    pub fn attr_rdattr_error(&self) -> nfsstat4 {
         // rdattr_error:
         // The server uses this to specify the behavior of the client when
         // reading attributes.  See Section 4 for additional description.
-        NfsStat4::Nfs4errInval
+        nfsstat4::NFS4ERR_INVAL
     }
 
-    pub fn attr_supported_attrs(&self) -> Attrlist4<FileAttr> {
+    pub fn attr_supported_attrs(&self) -> Vec<FileAttr> {
         // supported_attrs:
         // The bit vector that would retrieve all REQUIRED and RECOMMENDED
         // attributes that are supported for this object.  The scope of this
         //attribute applies to all objects with a matching fsid.
-        Attrlist4::<FileAttr>::new(Some(vec![
+        vec![
             FileAttr::SupportedAttrs,
             FileAttr::Type,
             FileAttr::FhExpireType,
@@ -546,7 +554,7 @@ impl FileManager {
             FileAttr::TimeMetadata,
             FileAttr::TimeModify,
             // FileAttr::MountedOnFileid,
-        ]))
+        ]
     }
 
     pub fn attr_expire_type(&self) -> u32 {

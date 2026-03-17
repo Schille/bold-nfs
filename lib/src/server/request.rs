@@ -1,10 +1,10 @@
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
-    time::SystemTime,
 };
 
-use bold_proto::nfs4_proto::{NfsFh4, NfsStat4};
+use bold_proto::nfs4_proto::xdr::{nfs_fh4, nfsstat4};
+use bytes::Bytes;
 use tracing::error;
 
 use super::{
@@ -15,7 +15,7 @@ use super::{
 #[derive(Debug)]
 pub struct NfsRequest<'a> {
     client_addr: String,
-    filehandle: Option<NfsFh4>,
+    filehandle: Option<nfs_fh4<Bytes>>,
     // shared state for client manager between connections
     cmanager: ClientManagerHandle,
     // local filehandle manager
@@ -27,7 +27,7 @@ pub struct NfsRequest<'a> {
     // filehandle db
     pub file_manager: Arc<RwLock<FileManager>>,
     // locally cached filehandles for this client
-    pub writehandle_cache: Option<&'a mut HashMap<NfsFh4, WriteCacheHandle>>,
+    pub writehandle_cache: Option<&'a mut HashMap<nfs_fh4<Bytes>, WriteCacheHandle>>,
 
     cache_ttl: u64,
 }
@@ -41,7 +41,7 @@ impl<'a> NfsRequest<'a> {
         // filehandle manager
         filehandle_manager: Arc<RwLock<FileManager>>,
         // cache ttl + filehandle
-        writehandle_cache: Option<&'a mut HashMap<NfsFh4, WriteCacheHandle>>,
+        writehandle_cache: Option<&'a mut HashMap<nfs_fh4<Bytes>, WriteCacheHandle>>,
     ) -> Self {
         let request_time = std::time::UNIX_EPOCH.elapsed().unwrap().as_secs();
 
@@ -63,9 +63,9 @@ impl<'a> NfsRequest<'a> {
         &self.client_addr
     }
 
-    pub fn current_filehandle_id(&self) -> Option<NfsFh4> {
-        match self.filehandle {
-            Some(fh) => Some(fh),
+    pub fn current_filehandle_id(&self) -> Option<nfs_fh4<Bytes>> {
+        match &self.filehandle {
+            Some(fh) => Some(fh.clone()),
             None => None,
         }
     }
@@ -93,11 +93,11 @@ impl<'a> NfsRequest<'a> {
     //     self.fmanager.clone()
     // }
 
-    // pub fn set_filehandle(&mut self, filehandle: NfsFh4) {
+    // pub fn set_filehandle(&mut self, filehandle: nfs_fh4) {
     //     self.filehandle = Some(filehandle);
     // }
 
-    pub fn cache_writehandle(&mut self, fh: NfsFh4, writecache: WriteCacheHandle) {
+    pub fn cache_writehandle(&mut self, fh: nfs_fh4<Bytes>, writecache: WriteCacheHandle) {
         let cache = self.writehandle_cache.as_mut();
         match cache {
             None => return,
@@ -107,42 +107,45 @@ impl<'a> NfsRequest<'a> {
         }
     }
 
-    pub fn drop_filehandle_from_cache(&mut self, filehandle_id: NfsFh4) {
+    pub fn drop_filehandle_from_cache(&mut self, filehandle_id: &nfs_fh4<Bytes>) {
         let cache = self.writehandle_cache.as_mut();
         match cache {
             None => return,
             Some(cache) => {
-                cache.remove(&filehandle_id);
+                cache.remove(filehandle_id);
             }
         }
     }
 
     pub fn get_writehandle_from_cache(
         &mut self,
-        filehandle_id: NfsFh4,
+        filehandle_id: &nfs_fh4<Bytes>,
     ) -> Option<WriteCacheHandle> {
         // if no cache set, return None
         let cache = self.writehandle_cache.as_ref();
         match cache {
             None => None,
-            Some(cache) => match cache.get(&filehandle_id) {
+            Some(cache) => match cache.get(filehandle_id) {
                 Some(fh) => Some(fh.clone()),
                 None => None,
             },
         }
     }
 
-    pub fn set_filehandle(&mut self, filehandle_id: NfsFh4) -> Result<FilehandleVfs, NfsStat4> {
+    pub fn set_filehandle(
+        &mut self,
+        filehandle_id: &nfs_fh4<Bytes>,
+    ) -> Result<FilehandleVfs, nfsstat4> {
         let rmanager = self.file_manager.read().unwrap();
-        let fh = rmanager.fhdb.get_by_id(&filehandle_id);
+        let fh: Option<&FilehandleVfs> = rmanager.fhdb.get_by_id(filehandle_id);
         match fh {
             Some(fh) => {
-                self.filehandle = Some(fh.id);
+                self.filehandle = Some(fh.id.clone());
                 Ok(fh.clone())
             }
             None => {
                 error!("couldn't set filehandle");
-                Err(NfsStat4::Nfs4errStale)
+                Err(nfsstat4::NFS4ERR_STALE)
             }
         }
     }

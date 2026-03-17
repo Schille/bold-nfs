@@ -3,29 +3,29 @@ use tracing::{debug, error};
 
 use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
 
-use bold_proto::nfs4_proto::{NfsResOp4, NfsStat4, Renew4args, Renew4res};
+use bold_proto::nfs4_proto::xdr::{nfs_resop4, nfsstat4, RENEW4args, RENEW4res};
 
 #[async_trait]
-impl NfsOperation for Renew4args {
+impl NfsOperation for RENEW4args {
     async fn execute<'a>(&self, request: NfsRequest<'a>) -> NfsOpResponse<'a> {
         debug!(
             "Operation 30: RENEW - Renew a Lease {:?}, with request {:?}",
             self, request
         );
-        let res = request.client_manager().renew_leases(self.clientid).await;
+        let res = request.client_manager().renew_leases(self.clientid.0).await;
         match res {
             Ok(_) => NfsOpResponse {
                 request,
-                result: Some(NfsResOp4::Oprenew(Renew4res {
-                    status: NfsStat4::Nfs4Ok,
+                result: Some(nfs_resop4::OP_RENEW(RENEW4res {
+                    status: nfsstat4::NFS4_OK,
                 })),
-                status: NfsStat4::Nfs4Ok,
+                status: nfsstat4::NFS4_OK,
             },
             Err(e) => {
                 error!("Renew err {:?}", e);
                 NfsOpResponse {
                     request,
-                    result: Some(NfsResOp4::Oprenew(Renew4res {
+                    result: Some(nfs_resop4::OP_RENEW(RENEW4res {
                         status: e.nfs_error.clone(),
                     })),
                     status: e.nfs_error,
@@ -39,7 +39,7 @@ impl NfsOperation for Renew4args {
 // mod integration_tests {
 //     use crate::{
 //         server::{
-//             nfs40::{NfsResOp4, NfsStat4, Renew4args, SetClientId4res, SetClientIdConfirm4args},
+//             nfs40::{nfs_resop4, nfsstat4, Renew4args, SetClientId4res, SetClientIdConfirm4args},
 //             operation::NfsOperation,
 //         },
 //         test_utils::{create_client, create_nfs40_server},
@@ -66,7 +66,7 @@ impl NfsOperation for Renew4args {
 //         // setup client
 //         let res_client1 = client1.execute(request.clone()).await;
 //         let (client1_id, client1_confirm) = match res_client1.result.unwrap() {
-//             NfsResOp4::Opsetclientid(res) => match res {
+//             nfs_resop4::Opsetclientid(res) => match res {
 //                 SetClientId4res::Resok4(resok) => (resok.clientid, resok.setclientid_confirm),
 //                 _ => panic!("Unexpected response"),
 //             },
@@ -77,18 +77,18 @@ impl NfsOperation for Renew4args {
 //         let conf_client1: SetClientIdConfirm4args =
 //             create_client_confirm(client1_confirm, client1_id);
 //         let res_confirm_client1 = conf_client1.execute(request.clone()).await;
-//         assert_eq!(res_confirm_client1.status, NfsStat4::Nfs4Ok);
+//         assert_eq!(res_confirm_client1.status, nfsstat4::NFS4_OK);
 
 //         // renew client1
 //         let renew_client1 = Renew4args {
 //             clientid: client1_id,
 //         };
 //         let res_renew_client1 = renew_client1.execute(request.clone()).await;
-//         assert_eq!(res_renew_client1.status, NfsStat4::Nfs4Ok);
+//         assert_eq!(res_renew_client1.status, nfsstat4::NFS4_OK);
 
 //         // renew stale client
 //         let renew_client2 = Renew4args { clientid: 50 };
 //         let res_renew_client2 = renew_client2.execute(request.clone()).await;
-//         assert_eq!(res_renew_client2.status, NfsStat4::Nfs4errStaleClientid);
+//         assert_eq!(res_renew_client2.status, nfsstat4::Nfs4errStaleClientid);
 //     }
 // }

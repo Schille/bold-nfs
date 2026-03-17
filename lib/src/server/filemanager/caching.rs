@@ -30,7 +30,7 @@ impl WriteCache {
             WriteCacheMessage::Write(req) => {
                 // write to cache
                 self.filelike.seek(SeekFrom::Start(req.offset)).unwrap();
-                self.filelike.write_all(req.data.as_slice()).unwrap();
+                self.filelike.write_all(req.data.as_ref()).unwrap();
                 self.changed = true;
                 // update filehandle size (probably not needed here)
                 // let new_size = self.filelike.get_ref().len() as u64;

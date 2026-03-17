@@ -1,13 +1,14 @@
 use std::io::SeekFrom;
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use tracing::{debug, error};
 
 use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
-use bold_proto::nfs4_proto::{NfsResOp4, NfsStat4, Read4args, Read4res, Read4resok};
+use bold_proto::nfs4_proto::xdr::{nfs_resop4, nfsstat4, READ4args, READ4res, READ4resok};
 
 #[async_trait]
-impl NfsOperation for Read4args {
+impl NfsOperation for READ4args<Bytes> {
     async fn execute<'a>(&self, request: NfsRequest<'a>) -> NfsOpResponse<'a> {
         debug!(
             "Operation 25: READ - Read from File {:?}, with request {:?}",
@@ -21,23 +22,23 @@ impl NfsOperation for Read4args {
                 return NfsOpResponse {
                     request,
                     result: None,
-                    status: NfsStat4::Nfs4errFhexpired,
+                    status: nfsstat4::NFS4ERR_FHEXPIRED,
                 };
             }
         };
 
-        let mut buffer: Vec<u8> = vec![0; self.count as usize];
+        let mut buffer: Vec<u8> = vec![0; self.count.0 as usize];
         let mut rfile = filehandle.file.open_file().unwrap();
-        rfile.seek(SeekFrom::Start(self.offset)).unwrap();
+        rfile.seek(SeekFrom::Start(self.offset.0)).unwrap();
         let _ = rfile.read_exact(&mut buffer);
 
         NfsOpResponse {
             request,
-            result: Some(NfsResOp4::Opread(Read4res::Resok4(Read4resok {
+            result: Some(nfs_resop4::OP_READ(READ4res::NFS4_OK(READ4resok {
                 eof: true,
-                data: buffer,
+                data: Bytes::from_owner(buffer),
             }))),
-            status: NfsStat4::Nfs4Ok,
+            status: nfsstat4::NFS4_OK,
         }
     }
 }

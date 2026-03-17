@@ -3,13 +3,13 @@ use tracing::debug;
 
 use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
 
-use bold_proto::nfs4_proto::{
-    Access4args, Access4res, Access4resok, NfsResOp4, NfsStat4, ACCESS4_DELETE, ACCESS4_EXECUTE,
+use bold_proto::nfs4_proto::xdr::{
+    nfs_resop4, nfsstat4, ACCESS4args, ACCESS4res, ACCESS4resok, ACCESS4_DELETE, ACCESS4_EXECUTE,
     ACCESS4_EXTEND, ACCESS4_LOOKUP, ACCESS4_MODIFY, ACCESS4_READ,
 };
 
 #[async_trait]
-impl NfsOperation for Access4args {
+impl NfsOperation for ACCESS4args {
     async fn execute<'a>(&self, request: NfsRequest<'a>) -> NfsOpResponse<'a> {
         debug!(
             "Operation 3: ACCESS - Check Access Rights {:?}, with request {:?}",
@@ -17,7 +17,7 @@ impl NfsOperation for Access4args {
         );
         NfsOpResponse {
             request,
-            result: Some(NfsResOp4::OpAccess(Access4res::Resok4(Access4resok {
+            result: Some(nfs_resop4::OP_ACCESS(ACCESS4res::NFS4_OK(ACCESS4resok {
                 supported: ACCESS4_READ
                     | ACCESS4_LOOKUP
                     | ACCESS4_MODIFY
@@ -26,7 +26,7 @@ impl NfsOperation for Access4args {
                     | ACCESS4_EXECUTE,
                 access: self.access,
             }))),
-            status: NfsStat4::Nfs4Ok,
+            status: nfsstat4::NFS4_OK,
         }
     }
 }
@@ -36,7 +36,7 @@ mod integration_tests {
     use crate::{
         server::{
             nfs40::{
-                Access4args, Access4res, NfsResOp4, NfsStat4, ACCESS4_DELETE, ACCESS4_EXECUTE,
+                nfs_resop4, nfsstat4, ACCESS4args, ACCESS4res, ACCESS4_DELETE, ACCESS4_EXECUTE,
                 ACCESS4_EXTEND, ACCESS4_LOOKUP, ACCESS4_MODIFY, ACCESS4_READ,
             },
             operation::NfsOperation,
@@ -49,7 +49,7 @@ mod integration_tests {
     #[traced_test]
     async fn test_check_access() {
         let request = create_nfs40_server(None).await;
-        let args = Access4args {
+        let args = ACCESS4args {
             access: ACCESS4_READ
                 | ACCESS4_LOOKUP
                 | ACCESS4_MODIFY
@@ -57,8 +57,8 @@ mod integration_tests {
                 | ACCESS4_DELETE,
         };
         let response = args.execute(request).await;
-        assert_eq!(response.status, NfsStat4::Nfs4Ok);
-        if let Some(NfsResOp4::OpAccess(Access4res::Resok4(res))) = response.result {
+        assert_eq!(response.status, nfsstat4::NFS4_OK);
+        if let Some(nfs_resop4::OP_ACCESS(ACCESS4res::NFS4_OK(res))) = response.result {
             assert_eq!(
                 res.supported,
                 ACCESS4_READ

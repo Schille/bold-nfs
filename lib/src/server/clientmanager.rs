@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use multi_index_map::MultiIndexMap;
 use rand::distributions::Uniform;
 use rand::Rng;
@@ -7,7 +8,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 use tracing::error;
 
-use bold_proto::nfs4_proto::NfsStat4;
+use bold_proto::nfs4_proto::xdr::nfsstat4;
 
 type ClientDb = MultiIndexClientEntryMap;
 
@@ -35,20 +36,20 @@ pub struct ClientEntry {
     #[multi_index(hashed_non_unique)]
     pub principal: Option<String>,
     #[multi_index(hashed_non_unique)]
-    pub verifier: [u8; 8],
+    pub verifier: Bytes,
     #[multi_index(hashed_non_unique)]
-    pub id: String,
+    pub id: Bytes,
     #[multi_index(hashed_non_unique)]
     pub clientid: u64,
     pub callback: ClientCallback,
     #[multi_index(hashed_unique)]
-    pub setclientid_confirm: [u8; 8],
+    pub setclientid_confirm: Bytes,
     pub confirmed: bool,
 }
 
 struct UpsertClientRequest {
-    pub verifier: [u8; 8],
-    pub id: String,
+    pub verifier: Bytes,
+    pub id: Bytes,
     pub callback: ClientCallback,
     pub principal: Option<String>,
     pub respond_to: oneshot::Sender<Result<ClientEntry, ClientManagerError>>,
@@ -56,7 +57,7 @@ struct UpsertClientRequest {
 
 struct ConfirmClientRequest {
     pub client_id: u64,
-    pub setclientid_confirm: [u8; 8],
+    pub setclientid_confirm: Bytes,
     pub principal: Option<String>,
     pub respond_to: oneshot::Sender<Result<ClientEntry, ClientManagerError>>,
 }
@@ -94,15 +95,15 @@ impl ClientManager {
             ClientManagerMessage::ConfirmClient(request) => {
                 let result = self.confirm_client(
                     request.client_id,
-                    request.setclientid_confirm,
+                    &request.setclientid_confirm,
                     request.principal,
                 );
                 let _ = request.respond_to.send(result);
             }
             ClientManagerMessage::UpsertClient(request) => {
                 let result = self.upsert_client(
-                    request.verifier,
-                    request.id,
+                    &request.verifier,
+                    &request.id,
                     request.callback,
                     request.principal,
                 );
@@ -129,13 +130,13 @@ impl ClientManager {
 
     fn upsert_client(
         &mut self,
-        verifier: [u8; 8],
-        id: String,
+        verifier: &Bytes,
+        id: &Bytes,
         callback: ClientCallback,
         principal: Option<String>,
     ) -> Result<ClientEntry, ClientManagerError> {
         let db = Arc::get_mut(&mut self.db).unwrap();
-        let entries = db.get_by_id(&id);
+        let entries = db.get_by_id(id);
         let mut existing_clientid: Option<u64> = None;
         if !entries.is_empty() {
             // this is an update attempt
@@ -146,7 +147,7 @@ impl ClientManager {
                     // not match that of the SETCLIENTID call, then the server returns an
                     // NFS4ERR_CLID_INUSE error.
                     return Err(ClientManagerError {
-                        nfs_error: NfsStat4::Nfs4errClidInuse,
+                        nfs_error: nfsstat4::NFS4ERR_CLID_INUSE,
                     });
                 }
                 if !entry.confirmed {
@@ -160,13 +161,19 @@ impl ClientManager {
             });
         }
 
-        Ok(self.add_client_record(verifier, id, callback, principal, existing_clientid))
+        Ok(self.add_client_record(
+            verifier.clone(),
+            id.clone(),
+            callback,
+            principal,
+            existing_clientid,
+        ))
     }
 
     fn add_client_record(
         &mut self,
-        verifier: [u8; 8],
-        id: String,
+        verifier: Bytes,
+        id: Bytes,
         callback: ClientCallback,
         principal: Option<String>,
         client_id: Option<u64>,
@@ -176,7 +183,7 @@ impl ClientManager {
         // generate a random 8 byte array
         let setclientid_confirm_vec: Vec<u8> =
             (0..8).map(|_| rng.sample(Uniform::new(0, 255))).collect();
-        let setclientid_confirm: [u8; 8] = setclientid_confirm_vec.try_into().unwrap();
+        let setclientid_confirm: Bytes = setclientid_confirm_vec.try_into().unwrap();
         let client = ClientEntry {
             principal,
             verifier,
@@ -195,7 +202,7 @@ impl ClientManager {
     fn confirm_client(
         &mut self,
         client_id: u64,
-        setclientid_confirm: [u8; 8],
+        setclientid_confirm: &Bytes,
         principal: Option<String>,
     ) -> Result<ClientEntry, ClientManagerError> {
         let db = Arc::get_mut(&mut self.db).unwrap();
@@ -206,7 +213,7 @@ impl ClientManager {
         if entries.is_empty() {
             // nothing to confirm
             return Err(ClientManagerError {
-                nfs_error: NfsStat4::Nfs4errStaleClientid,
+                nfs_error: nfsstat4::NFS4ERR_STALE_CLIENTID,
             });
         }
 
@@ -216,7 +223,7 @@ impl ClientManager {
                 // not match that of the SETCLIENTID call, then the server returns an
                 // NFS4ERR_CLID_INUSE error.
                 return Err(ClientManagerError {
-                    nfs_error: NfsStat4::Nfs4errClidInuse,
+                    nfs_error: nfsstat4::NFS4ERR_CLID_INUSE,
                 });
             }
             if entry.confirmed && entry.setclientid_confirm != setclientid_confirm {
@@ -241,7 +248,7 @@ impl ClientManager {
                 Ok(new_confirmed)
             }
             None => Err(ClientManagerError {
-                nfs_error: NfsStat4::Nfs4errStaleClientid,
+                nfs_error: nfsstat4::NFS4ERR_STALE_CLIENTID,
             }),
         }
     }
@@ -251,7 +258,7 @@ impl ClientManager {
         let entries = db.get_by_clientid(&client_id);
         if entries.is_empty() {
             return Err(ClientManagerError {
-                nfs_error: NfsStat4::Nfs4errStaleClientid,
+                nfs_error: nfsstat4::NFS4ERR_STALE_CLIENTID,
             });
         }
         // todo: implement lease renewal
@@ -281,7 +288,7 @@ impl ClientManager {
 
 #[derive(Debug, Clone)]
 pub struct ClientManagerError {
-    pub nfs_error: NfsStat4,
+    pub nfs_error: nfsstat4,
 }
 
 impl fmt::Display for ClientManagerError {
@@ -331,8 +338,8 @@ impl ClientManagerHandle {
 
     pub async fn upsert_client(
         &self,
-        verifier: [u8; 8],
-        id: String,
+        verifier: Bytes,
+        id: Bytes,
         callback: ClientCallback,
         principal: Option<String>,
     ) -> Result<ClientEntry, ClientManagerError> {
@@ -352,7 +359,7 @@ impl ClientManagerHandle {
             Err(e) => {
                 error!("Couldn't upsert client: {:?}", e);
                 Err(ClientManagerError {
-                    nfs_error: NfsStat4::Nfs4errServerfault,
+                    nfs_error: nfsstat4::NFS4ERR_SERVERFAULT,
                 })
             }
         }
@@ -361,7 +368,7 @@ impl ClientManagerHandle {
     pub async fn confirm_client(
         &self,
         client_id: u64,
-        setclientid_confirm: [u8; 8],
+        setclientid_confirm: Bytes,
         principal: Option<String>,
     ) -> Result<ClientEntry, ClientManagerError> {
         let (tx, rx) = oneshot::channel();
@@ -379,7 +386,7 @@ impl ClientManagerHandle {
             Err(e) => {
                 error!("Couldn't confirm client: {:?}", e);
                 Err(ClientManagerError {
-                    nfs_error: NfsStat4::Nfs4errServerfault,
+                    nfs_error: nfsstat4::NFS4ERR_SERVERFAULT,
                 })
             }
         }
@@ -399,7 +406,7 @@ impl ClientManagerHandle {
             Err(e) => {
                 error!("Couldn't renew leases: {:?}", e);
                 Err(ClientManagerError {
-                    nfs_error: NfsStat4::Nfs4errServerfault,
+                    nfs_error: nfsstat4::NFS4ERR_SERVERFAULT,
                 })
             }
         }
@@ -418,17 +425,18 @@ async fn run_client_manager(mut actor: ClientManager) {
 #[cfg(test)]
 mod tests {
 
+    use bytes::Bytes;
     use tokio::sync::mpsc;
 
-    use bold_proto::nfs4_proto::NfsStat4;
+    use bold_proto::nfs4_proto::xdr::nfsstat4;
 
     #[test]
     fn test_upsert_clients_no_principals() {
         let (_, receiver) = mpsc::channel(16);
         let mut manager = super::ClientManager::new(receiver);
 
-        let verifier = [0; 8];
-        let id = "test".to_string();
+        let verifier = Bytes::from_owner([0; 8]);
+        let id = Bytes::from_owner("test");
         let callback = super::ClientCallback {
             program: 0,
             rnetid: "tcp".to_string(),
@@ -437,7 +445,7 @@ mod tests {
         };
 
         let client = manager
-            .upsert_client(verifier, id.clone(), callback.clone(), None)
+            .upsert_client(&verifier, &id, callback.clone(), None)
             .unwrap();
         assert_eq!(client.id, id);
         assert_eq!(client.verifier, verifier);
@@ -451,7 +459,7 @@ mod tests {
         };
 
         let same_client = manager
-            .upsert_client(verifier, id.clone(), updated_callback.clone(), None)
+            .upsert_client(&verifier, &id, updated_callback.clone(), None)
             .unwrap();
         assert_eq!(same_client.id, id);
         assert_eq!(same_client.verifier, verifier);
@@ -459,14 +467,15 @@ mod tests {
         assert_eq!(same_client.clientid, client.clientid);
 
         // confirm after update
-        let err_confirm = manager.confirm_client(client.clientid, client.setclientid_confirm, None);
+        let err_confirm =
+            manager.confirm_client(client.clientid, &client.setclientid_confirm, None);
         assert_eq!(
             err_confirm.unwrap_err().nfs_error,
-            NfsStat4::Nfs4errStaleClientid
+            nfsstat4::NFS4ERR_STALE_CLIENTID
         );
 
         let confirmed_client = manager
-            .confirm_client(client.clientid, same_client.setclientid_confirm, None)
+            .confirm_client(client.clientid, &same_client.setclientid_confirm, None)
             .unwrap();
         assert!(confirmed_client.confirmed);
         assert_eq!(confirmed_client.clientid, client.clientid);
@@ -478,20 +487,20 @@ mod tests {
             callback_ident: 0,
         };
         let err_client = manager.upsert_client(
-            verifier,
-            id,
+            &verifier,
+            &id,
             other_callback.clone(),
             Some("LINUX".to_string()),
         );
         assert_eq!(
             err_client.unwrap_err().nfs_error,
-            NfsStat4::Nfs4errClidInuse
+            nfsstat4::NFS4ERR_CLID_INUSE
         );
 
-        let stale_client = manager.confirm_client(1234, client.setclientid_confirm, None);
+        let stale_client = manager.confirm_client(1234, &client.setclientid_confirm, None);
         assert_eq!(
             stale_client.unwrap_err().nfs_error,
-            NfsStat4::Nfs4errStaleClientid
+            nfsstat4::NFS4ERR_STALE_CLIENTID
         );
 
         let confirmed = manager.get_client_confirmed(client.clientid);
@@ -510,8 +519,8 @@ mod tests {
         let (_, receiver) = mpsc::channel(16);
         let mut manager = super::ClientManager::new(receiver);
 
-        let verifier = [0; 8];
-        let id = "test".to_string();
+        let verifier = Bytes::from_owner([0; 8]);
+        let id = Bytes::from_owner("test");
         let callback = super::ClientCallback {
             program: 0,
             rnetid: "tcp".to_string(),
@@ -520,16 +529,16 @@ mod tests {
         };
 
         let client = manager
-            .upsert_client(verifier, id.clone(), callback.clone(), None)
+            .upsert_client(&verifier, &id, callback.clone(), None)
             .unwrap();
 
         let confirmed_client = manager
-            .confirm_client(client.clientid, client.setclientid_confirm, None)
+            .confirm_client(client.clientid, &client.setclientid_confirm, None)
             .unwrap();
         assert!(confirmed_client.confirmed);
         assert_eq!(confirmed_client.clientid, client.clientid);
         let confirmed_client = manager
-            .confirm_client(client.clientid, client.setclientid_confirm, None)
+            .confirm_client(client.clientid, &client.setclientid_confirm, None)
             .unwrap();
         assert!(confirmed_client.confirmed);
         assert_eq!(confirmed_client.clientid, client.clientid);
@@ -540,8 +549,8 @@ mod tests {
         let (_, receiver) = mpsc::channel(16);
         let mut manager = super::ClientManager::new(receiver);
 
-        let verifier = [0; 8];
-        let id = "test".to_string();
+        let verifier = Bytes::from_owner([0; 8]);
+        let id = Bytes::from_owner("test");
         let callback = super::ClientCallback {
             program: 0,
             rnetid: "tcp".to_string(),
@@ -550,18 +559,13 @@ mod tests {
         };
 
         let client = manager
-            .upsert_client(
-                verifier,
-                id.clone(),
-                callback.clone(),
-                Some("Linux".to_string()),
-            )
+            .upsert_client(&verifier, &id, callback.clone(), Some("Linux".to_string()))
             .unwrap();
 
         let same_client = manager
             .confirm_client(
                 client.clientid,
-                client.setclientid_confirm,
+                &client.setclientid_confirm,
                 Some("Linux".to_string()),
             )
             .unwrap();

@@ -5,8 +5,9 @@ pub mod server;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use bold_proto::rpc_proto::{AcceptBody, AcceptedReply, OpaqueAuth, ReplyBody};
-use bold_proto::XDRProtoCodec;
+use bold_proto::onc_rpc::{auth::AuthFlavor, AcceptedReply, ReplyBody};
+use bold_proto::onc_rpc::{AcceptedStatus, MessageType};
+use bold_proto::{RpcMessage, XDRProtoCodec};
 use futures::SinkExt;
 use server::clientmanager::ClientManagerHandle;
 use server::filemanager::{FileManager, FileManagerHandle};
@@ -99,15 +100,13 @@ impl NFSServer {
                                     }
                                     Some(Err(e)) => {
                                         error!("couldn't get message: {:?}", e);
-                                        let resp = Box::new(bold_proto::rpc_proto::RpcReplyMsg {
-                                            xid: 0,
-                                            body: bold_proto::rpc_proto::MsgType::Reply(
-                                                ReplyBody::MsgAccepted(AcceptedReply {
-                                                    verf: OpaqueAuth::AuthNull(Vec::<u8>::new()),
-                                                    reply_data: AcceptBody::GarbageArgs,
-                                                }),
+                                        let message_type = MessageType::Reply(ReplyBody::Accepted(
+                                            AcceptedReply::new(
+                                                AuthFlavor::AuthNone(None),
+                                                AcceptedStatus::GarbageArgs,
                                             ),
-                                        });
+                                        ));
+                                        let resp = Box::new(RpcMessage::new(0, message_type));
                                         match nfs_transport.send(resp).await {
                                             Ok(_) => {
                                                 trace!("response sent");
@@ -174,7 +173,10 @@ mod test_utils {
         filemanager::{FileManager, FileManagerHandle, FilehandleDb, FilehandleVfs},
         request::NfsRequest,
     };
-    use bold_proto::nfs4_proto::{CbClient4, ClientAddr4, NfsClientId4, SetClientId4args};
+    use bold_proto::nfs4_proto::xdr::{
+        cb_client4, clientaddr4, nfs_client_id4, verifier4, SETCLIENTID4args,
+    };
+    use bytes::Bytes;
     use vfs::{MemoryFS, VfsPath};
 
     pub fn create_dummyfs() -> VfsPath {
@@ -212,14 +214,17 @@ mod test_utils {
         root
     }
 
-    pub fn create_client(verifier: [u8; 8], id: String) -> SetClientId4args {
-        SetClientId4args {
-            client: NfsClientId4 { verifier, id },
-            callback: CbClient4 {
+    pub fn create_client(verifier: [u8; 8], id: String) -> SETCLIENTID4args<Bytes> {
+        SETCLIENTID4args {
+            client: nfs_client_id4 {
+                verifier: verifier4(Bytes::copy_from_slice(&verifier)),
+                id: Bytes::from(id),
+            },
+            callback: cb_client4 {
                 cb_program: 0,
-                cb_location: ClientAddr4 {
-                    rnetid: "tcp".to_string(),
-                    raddr: "127.0.0.1.149.18".to_string(),
+                cb_location: clientaddr4 {
+                    r_netid: "tcp".to_string(),
+                    r_addr: "127.0.0.1.149.18".to_string(),
                 },
             },
             callback_ident: 1,

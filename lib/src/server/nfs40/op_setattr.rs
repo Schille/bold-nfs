@@ -1,14 +1,15 @@
 use async_trait::async_trait;
+use bytes::Bytes;
 use tracing::{debug, error};
 
 use crate::server::{
-    nfs40::NfsStat4, operation::NfsOperation, request::NfsRequest, response::NfsOpResponse,
+    nfs40::nfsstat4, operation::NfsOperation, request::NfsRequest, response::NfsOpResponse,
 };
 
-use bold_proto::nfs4_proto::{Attrlist4, FileAttr, NfsResOp4, SetAttr4args, SetAttr4res};
+use bold_proto::nfs4_proto::xdr::{attrlist4, nfs_resop4, SETATTR4args, SETATTR4res};
 
 #[async_trait]
-impl NfsOperation for SetAttr4args {
+impl NfsOperation for SETATTR4args<Bytes> {
     async fn execute<'a>(&self, mut request: NfsRequest<'a>) -> NfsOpResponse<'a> {
         debug!(
             "Operation 34: SETATTR - Set Attributes {:?}, with request {:?}",
@@ -20,19 +21,20 @@ impl NfsOperation for SetAttr4args {
                 error!("None filehandle");
                 NfsOpResponse {
                     request,
-                    result: Some(NfsResOp4::Opsetattr(SetAttr4res {
-                        status: NfsStat4::Nfs4errStale,
-                        attrsset: Attrlist4::<FileAttr>::new(None),
+                    result: Some(nfs_resop4::OP_SETATTR(SETATTR4res {
+                        status: nfsstat4::NFS4ERR_STALE,
+                        attrsset: Vec::new().into(),
                     })),
-                    status: NfsStat4::Nfs4errStale,
+                    status: nfsstat4::NFS4ERR_STALE,
                 }
             }
             Some(filehandle) => {
-                let attrsset = if !self.obj_attributes.attrmask.is_empty() {
+                let attrsset = if !self.obj_attributes.attrmask.0.is_empty() {
                     let file_manager = request.file_manager.clone();
                     let rmanager = file_manager.read().unwrap();
 
-                    let attrsset = rmanager.set_attr(&filehandle, &self.obj_attributes.attr_vals);
+                    let attrsset = rmanager
+                        .set_attr(&filehandle, &self.obj_attributes.attr_vals.clone().into());
 
                     // request
                     //     .file_manager()
@@ -41,16 +43,16 @@ impl NfsOperation for SetAttr4args {
 
                     attrsset
                 } else {
-                    Attrlist4::<FileAttr>::new(None)
+                    Vec::new()
                 };
 
                 NfsOpResponse {
                     request,
-                    result: Some(NfsResOp4::Opsetattr(SetAttr4res {
-                        status: NfsStat4::Nfs4Ok,
-                        attrsset,
+                    result: Some(nfs_resop4::OP_SETATTR(SETATTR4res {
+                        status: nfsstat4::NFS4_OK,
+                        attrsset: attrsset.into(),
                     })),
-                    status: NfsStat4::Nfs4Ok,
+                    status: nfsstat4::NFS4_OK,
                 }
             }
         }

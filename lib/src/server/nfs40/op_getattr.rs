@@ -1,14 +1,17 @@
 use async_trait::async_trait;
+use bytes::Bytes;
 use tracing::{debug, error};
 
 use crate::server::{
-    nfs40::NfsStat4, operation::NfsOperation, request::NfsRequest, response::NfsOpResponse,
+    nfs40::nfsstat4, operation::NfsOperation, request::NfsRequest, response::NfsOpResponse,
 };
 
-use bold_proto::nfs4_proto::{Fattr4, Getattr4args, Getattr4resok, NfsResOp4};
+use bold_proto::nfs4_proto::xdr::{
+    attrlist4, bitmap4, fattr4, nfs_resop4, GETATTR4args, GETATTR4res, GETATTR4resok,
+};
 
 #[async_trait]
-impl NfsOperation for Getattr4args {
+impl NfsOperation for GETATTR4args {
     async fn execute<'a>(&self, request: NfsRequest<'a>) -> NfsOpResponse<'a> {
         debug!(
             "Operation 9: GETATTR - Get Attributes {:?}, with request {:?}",
@@ -20,43 +23,52 @@ impl NfsOperation for Getattr4args {
                 error!("None filehandle");
                 return NfsOpResponse {
                     request,
-                    result: Some(NfsResOp4::Opgetattr(Getattr4resok {
-                        obj_attributes: None,
-                        status: NfsStat4::Nfs4errStale,
-                    })),
-                    status: NfsStat4::Nfs4errStale,
+                    result: Some(nfs_resop4::OP_GETATTR(GETATTR4res::NFS4_OK(
+                        GETATTR4resok {
+                            obj_attributes: fattr4 {
+                                attrmask: bitmap4(Vec::new()),
+                                attr_vals: attrlist4(Bytes::new()),
+                            },
+                        },
+                    ))),
+                    status: nfsstat4::NFS4ERR_STALE,
                 };
             }
             Some(filehandle) => {
                 let file_manager = request.file_manager.clone();
                 let rmanager = file_manager.read().unwrap();
-
-                let resp = rmanager.filehandle_attrs(&self.attr_request, &filehandle);
+                let attr = self.attr_request.clone();
+                let resp = rmanager.filehandle_attrs(attr.into(), &filehandle);
 
                 let (answer_attrs, attrs) = match resp {
                     Some(inner) => inner,
                     None => {
                         return NfsOpResponse {
                             request,
-                            result: Some(NfsResOp4::Opgetattr(Getattr4resok {
-                                obj_attributes: None,
-                                status: NfsStat4::Nfs4errServerfault,
-                            })),
-                            status: NfsStat4::Nfs4errServerfault,
+                            result: Some(nfs_resop4::OP_GETATTR(GETATTR4res::NFS4_OK(
+                                GETATTR4resok {
+                                    obj_attributes: fattr4 {
+                                        attrmask: bitmap4(Vec::new()),
+                                        attr_vals: attrlist4(Bytes::new()),
+                                    },
+                                },
+                            ))),
+                            status: nfsstat4::NFS4ERR_SERVERFAULT,
                         };
                     }
                 };
 
                 NfsOpResponse {
                     request,
-                    result: Some(NfsResOp4::Opgetattr(Getattr4resok {
-                        status: NfsStat4::Nfs4Ok,
-                        obj_attributes: Some(Fattr4 {
-                            attrmask: answer_attrs,
-                            attr_vals: attrs,
-                        }),
-                    })),
-                    status: NfsStat4::Nfs4Ok,
+                    result: Some(nfs_resop4::OP_GETATTR(GETATTR4res::NFS4_OK(
+                        GETATTR4resok {
+                            obj_attributes: fattr4 {
+                                attrmask: answer_attrs.into(),
+                                attr_vals: attrs.into(),
+                            },
+                        },
+                    ))),
+                    status: nfsstat4::NFS4_OK,
                 }
             }
         }
@@ -68,7 +80,7 @@ impl NfsOperation for Getattr4args {
 //     use crate::{
 //         server::{
 //             nfs40::{
-//                 Fattr4, FileAttr, FileAttrValue, Fsid4, Getattr4args, NfsFtype4, NfsResOp4,
+//                 fattr4, FileAttr, FileAttrValue, Fsid4, Getattr4args, NfsFtype4, nfs_resop4,
 //                 NfsStat4,
 //             },
 //             operation::NfsOperation,
@@ -89,13 +101,13 @@ impl NfsOperation for Getattr4args {
 //         };
 
 //         let res1 = args1.execute(request.clone()).await;
-//         assert_eq!(res1.status, crate::server::nfs40::NfsStat4::Nfs4Ok);
+//         assert_eq!(res1.status, crate::server::nfs40::nfsstat4::NFS4_OK);
 //         match res1.result {
-//             Some(NfsResOp4::Opgetattr(res)) => {
-//                 assert_eq!(res.status, NfsStat4::Nfs4Ok);
+//             Some(nfs_resop4::Opgetattr(res)) => {
+//                 assert_eq!(res.status, nfsstat4::NFS4_OK);
 //                 assert_eq!(
 //                     res.obj_attributes,
-//                     Some(Fattr4 {
+//                     Some(fattr4 {
 //                         attrmask: vec![FileAttr::LeaseTime],
 //                         attr_vals: vec![FileAttrValue::LeaseTime(60)]
 //                     })
@@ -119,13 +131,13 @@ impl NfsOperation for Getattr4args {
 //         };
 
 //         let res2 = args2.execute(request.clone()).await;
-//         assert_eq!(res2.status, crate::server::nfs40::NfsStat4::Nfs4Ok);
+//         assert_eq!(res2.status, crate::server::nfs40::nfsstat4::NFS4_OK);
 //         match res2.result {
-//             Some(NfsResOp4::Opgetattr(res)) => {
-//                 assert_eq!(res.status, NfsStat4::Nfs4Ok);
+//             Some(nfs_resop4::Opgetattr(res)) => {
+//                 assert_eq!(res.status, nfsstat4::NFS4_OK);
 //                 assert_eq!(
 //                     res.obj_attributes,
-//                     Some(Fattr4 {
+//                     Some(fattr4 {
 //                         attrmask: vec![
 //                             FileAttr::Type,
 //                             FileAttr::Change,

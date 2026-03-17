@@ -43,7 +43,7 @@ contents:
 ```
 
 You can compile and run it from the repo:
-1) `cargo run -p bold-mem -- --debug exec/memoryfs.yam`
+1) `cargo run -p bold-mem -- --debug exec/memoryfs.yaml`
 (optionally, you can enable the `--debug` flag)
 
 2) Open another terminal

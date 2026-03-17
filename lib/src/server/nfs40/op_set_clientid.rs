@@ -7,10 +7,10 @@ use crate::server::{
     response::NfsOpResponse,
 };
 
-use bold_proto::nfs4_proto::{
-    NfsResOp4, NfsStat4, SetClientId4res, SetClientId4resok,
+use bold_proto::nfs4_proto::xdr::{
+    clientid4, nfs_resop4, nfsstat4, verifier4, SETCLIENTID4args, SETCLIENTID4res,
+    SETCLIENTID4resok,
 };
-use bold_proto::nfs4_gen::xdr::SETCLIENTID4args;
 
 #[async_trait]
 impl NfsOperation for SETCLIENTID4args<Bytes> {
@@ -32,26 +32,32 @@ impl NfsOperation for SETCLIENTID4args<Bytes> {
             callback_ident: self.callback_ident,
         };
 
-
         let res = request
             .client_manager()
-            .upsert_client(self.client.verifier, self.client.id.clone(), callback, None)
+            .upsert_client(
+                self.client.verifier.0.clone(),
+                self.client.id.clone(),
+                callback,
+                None,
+            )
             .await;
         match res {
             Ok(client) => NfsOpResponse {
                 request,
-                result: Some(NfsResOp4::Opsetclientid(SetClientId4res::Resok4(
-                    SetClientId4resok {
-                        clientid: client.clientid,
-                        setclientid_confirm: client.setclientid_confirm,
+                result: Some(nfs_resop4::OP_SETCLIENTID(SETCLIENTID4res::NFS4_OK(
+                    SETCLIENTID4resok {
+                        clientid: clientid4(client.clientid),
+                        setclientid_confirm: verifier4(Bytes::from_owner(
+                            client.setclientid_confirm,
+                        )),
                     },
                 ))),
-                status: NfsStat4::Nfs4Ok,
+                status: nfsstat4::NFS4_OK,
             },
             Err(_e) => NfsOpResponse {
                 request,
                 result: None,
-                status: NfsStat4::Nfs4errServerfault,
+                status: nfsstat4::NFS4ERR_SERVERFAULT,
             },
         }
     }
@@ -62,7 +68,7 @@ impl NfsOperation for SETCLIENTID4args<Bytes> {
 
 //     use crate::{
 //         server::{
-//             nfs40::{NfsResOp4, NfsStat4, SetClientId4res},
+//             nfs40::{nfs_resop4, nfsstat4, SetClientId4res},
 //             operation::NfsOperation,
 //         },
 //         test_utils::{create_client, create_nfs40_server},
@@ -84,10 +90,10 @@ impl NfsOperation for SETCLIENTID4args<Bytes> {
 //         // run client1
 //         let response = client1.execute(request.clone()).await;
 //         let result = response.result.unwrap();
-//         assert_eq!(response.status, NfsStat4::Nfs4Ok);
+//         assert_eq!(response.status, nfsstat4::NFS4_OK);
 
 //         match result {
-//             NfsResOp4::Opsetclientid(res) => match res {
+//             nfs_resop4::Opsetclientid(res) => match res {
 //                 SetClientId4res::Resok4(resok) => {
 //                     assert_eq!(resok.clientid, 1);
 //                     assert_eq!(resok.setclientid_confirm.len(), 8);
@@ -100,10 +106,10 @@ impl NfsOperation for SETCLIENTID4args<Bytes> {
 //         // run client1_dup
 //         let response = client1_dup.execute(request.clone()).await;
 //         let result = response.result.unwrap();
-//         assert_eq!(response.status, NfsStat4::Nfs4Ok);
+//         assert_eq!(response.status, nfsstat4::NFS4_OK);
 
 //         match result {
-//             NfsResOp4::Opsetclientid(res) => match res {
+//             nfs_resop4::Opsetclientid(res) => match res {
 //                 SetClientId4res::Resok4(resok) => {
 //                     // this is the same NfsClientId4.id, so it should return the same client_id
 //                     assert_eq!(resok.clientid, 1);
@@ -122,10 +128,10 @@ impl NfsOperation for SETCLIENTID4args<Bytes> {
 //         // run client2
 //         let response = client2.execute(request.clone()).await;
 //         let result = response.result.unwrap();
-//         assert_eq!(response.status, NfsStat4::Nfs4Ok);
+//         assert_eq!(response.status, nfsstat4::NFS4_OK);
 
 //         match result {
-//             NfsResOp4::Opsetclientid(res) => match res {
+//             nfs_resop4::Opsetclientid(res) => match res {
 //                 SetClientId4res::Resok4(resok) => {
 //                     assert_eq!(resok.clientid, 2);
 //                     assert_eq!(resok.setclientid_confirm.len(), 8);

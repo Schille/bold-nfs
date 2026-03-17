@@ -3,15 +3,16 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use bytes::Bytes;
 use multi_index_map::MultiIndexMap;
 use tracing::debug;
 use vfs::VfsPath;
 
-use bold_proto::nfs4_proto::{
-    Fsid4, NfsFh4, NfsFtype4, Nfstime4, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR,
+use bold_proto::nfs4_proto::xdr::{
+    fsid4, nfs_fh4, nfs_ftype4, nfstime4, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR,
 };
 
-use super::{handle::WriteCacheHandle, locking::LockingState};
+use super::locking::LockingState;
 
 pub type FilehandleDb = MultiIndexFilehandleVfsMap;
 
@@ -19,7 +20,7 @@ pub type FilehandleDb = MultiIndexFilehandleVfsMap;
 #[multi_index_derive(Debug, Clone)]
 pub struct FilehandleVfs {
     #[multi_index(hashed_unique)]
-    pub id: NfsFh4,
+    pub id: nfs_fh4<Bytes>,
     pub file: VfsPath,
     // path:
     // the full path of the file including filename
@@ -28,7 +29,7 @@ pub struct FilehandleVfs {
     // type:
     // Designates the type of an object in terms of one of a number of
     // special constants
-    // pub attr_type: NfsFtype4,
+    // pub attr_type: nfs_ftype4,
     // change:
     // A value created by the server that the client can use to determine if
     // file data, directory contents, or attributes of the object have been
@@ -46,7 +47,7 @@ pub struct FilehandleVfs {
     // Unique file system identifier for the file system holding this
     // object.  The fsid attribute has major and minor components, each of
     // which are of data type uint64_t.
-    // pub attr_fsid: Fsid4,
+    // pub attr_fsid: fsid4,
     // mode:
     // The NFSv4.0 mode attribute is based on the UNIX mode bits.
     // pub attr_mode: u32,
@@ -62,13 +63,13 @@ pub struct FilehandleVfs {
     // time_access:
     // Represents the time of last access to the object by a READ operation
     // sent to the server.
-    // pub attr_time_access: Nfstime4,
+    // pub attr_time_access: nfstime4,
     // time_metadata:
     // The time of last metadata modification of the object.
-    // pub attr_time_metadata: Nfstime4,
+    // pub attr_time_metadata: nfstime4,
     // time_modified:
     // The time of last modification to the object.
-    // pub attr_time_modify: Nfstime4,
+    // pub attr_time_modify: nfstime4,
     // this filehandle has exclusive open
     pub verifier: Option<[u8; 8]>,
     // attached locks, see LockingState
@@ -79,7 +80,7 @@ pub struct FilehandleVfs {
 }
 
 impl FilehandleVfs {
-    pub fn new(file: VfsPath, id: NfsFh4, version: u64) -> Self {
+    pub fn new(file: VfsPath, id: nfs_fh4<Bytes>, version: u64) -> Self {
         // let init_time = Self::attr_time_access();
         let mut path = file.as_str().to_string();
         if path.is_empty() {
@@ -108,14 +109,14 @@ impl FilehandleVfs {
         }
     }
 
-    pub fn attr_type(&self) -> NfsFtype4 {
+    pub fn attr_type(&self) -> nfs_ftype4 {
         if self.file.is_dir().unwrap() {
-            return NfsFtype4::Nf4dir;
+            return nfs_ftype4::NF4DIR;
         }
         if self.file.is_file().unwrap() {
-            return NfsFtype4::Nf4reg;
+            return nfs_ftype4::NF4REG;
         }
-        NfsFtype4::Nf4Undef
+        nfs_ftype4::NF4SOCK
     }
 
     pub fn attr_change(&self, default: u64) -> u64 {
@@ -136,8 +137,8 @@ impl FilehandleVfs {
         u64::try_from(hasher.finish()).unwrap()
     }
 
-    pub fn attr_fsid(major: u64, minor: u64) -> Fsid4 {
-        Fsid4 { major, minor }
+    pub fn attr_fsid(major: u64, minor: u64) -> fsid4 {
+        fsid4 { major, minor }
     }
 
     pub fn attr_mode() -> u32 {
@@ -160,34 +161,34 @@ impl FilehandleVfs {
         self.file.metadata().unwrap().len
     }
 
-    pub fn attr_time_access(&self) -> Nfstime4 {
+    pub fn attr_time_access(&self) -> nfstime4 {
         // Todo persist
         let since_epoch = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap();
-        Nfstime4 {
+        nfstime4 {
             seconds: since_epoch.as_secs() as i64,
             nseconds: since_epoch.subsec_nanos(),
         }
     }
 
-    pub fn attr_time_metadata(&self) -> Nfstime4 {
+    pub fn attr_time_metadata(&self) -> nfstime4 {
         // Todo persist
         let since_epoch = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap();
-        Nfstime4 {
+        nfstime4 {
             seconds: since_epoch.as_secs() as i64,
             nseconds: since_epoch.subsec_nanos(),
         }
     }
 
-    pub fn attr_time_modify(&self) -> Nfstime4 {
+    pub fn attr_time_modify(&self) -> nfstime4 {
         // Todo persist
         let since_epoch = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap();
-        Nfstime4 {
+        nfstime4 {
             seconds: since_epoch.as_secs() as i64,
             nseconds: since_epoch.subsec_nanos(),
         }

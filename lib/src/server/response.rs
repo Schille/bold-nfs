@@ -1,4 +1,5 @@
-use bold_proto::nfs4_proto::{NfsResOp4, NfsStat4};
+use bold_proto::nfs4_proto::xdr::{nfs_resop4, nfsstat4};
+use bytes::Bytes;
 
 use super::request::NfsRequest;
 
@@ -6,7 +7,7 @@ use super::request::NfsRequest;
 pub struct NfsOpResponse<'a> {
     pub request: NfsRequest<'a>,
     // result of this operation
-    pub result: Option<NfsResOp4>,
+    pub result: Option<nfs_resop4<Bytes>>,
     // status of this operation, err or ok
-    pub status: NfsStat4,
+    pub status: nfsstat4,
 }

@@ -1,16 +1,18 @@
+use bytes::Bytes;
 use tokio::sync::{mpsc, oneshot};
 use tracing::debug;
 use vfs::VfsPath;
 
-use bold_proto::nfs4_proto::{
-    Attrlist4, FileAttr, FileAttrValue, NfsLease4, NfsStat4, ACL4_SUPPORT_ALLOW_ACL,
-    FH4_VOLATILE_ANY, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR,
+use bold_proto::{
+    nfs4_proto::xdr::{
+        attrlist4, nfs_lease4, nfsstat4, ACL4_SUPPORT_ALLOW_ACL, FH4_VOLATILE_ANY, MODE4_RGRP,
+        MODE4_ROTH, MODE4_RUSR,
+    },
+    nfs4_utils::{FileAttr, FileAttrValue},
 };
 
-use super::{
-    caching::run_file_write_cache, caching::WriteCache, filehandle::FilehandleVfs, FileManager,
-};
-use crate::server::filemanager::NfsFh4;
+use super::{caching::run_file_write_cache, caching::WriteCache, filehandle::FilehandleVfs};
+use crate::server::filemanager::nfs_fh4;
 
 pub enum FileManagerMessage {
     GetRootFilehandle(GetRootFilehandleRequest),
@@ -32,12 +34,12 @@ pub struct GetRootFilehandleRequest {
 
 pub struct GetFilehandleRequest {
     pub path: Option<String>,
-    pub filehandle: Option<NfsFh4>,
+    pub filehandle: Option<nfs_fh4<Bytes>>,
     pub respond_to: oneshot::Sender<Option<FilehandleVfs>>,
 }
 
 pub struct GetFilehandleAttrsRequest {
-    pub filehandle_id: NfsFh4,
+    pub filehandle_id: nfs_fh4<Bytes>,
     pub attrs_request: Vec<FileAttr>,
     pub respond_to: oneshot::Sender<Option<(Vec<FileAttr>, Vec<FileAttrValue>)>>,
 }
@@ -58,7 +60,7 @@ pub struct RemoveFileRequest {
 }
 
 pub struct TouchFileRequest {
-    pub id: NfsFh4,
+    pub id: nfs_fh4<Bytes>,
 }
 
 pub struct WriteCacheHandleRequest {
@@ -68,12 +70,12 @@ pub struct WriteCacheHandleRequest {
 }
 
 pub struct DropCacheHandleRequest {
-    pub filehandle_id: NfsFh4,
+    pub filehandle_id: nfs_fh4<Bytes>,
 }
 
 #[derive(Debug, Clone)]
 pub struct FileManagerError {
-    pub nfs_error: NfsStat4,
+    pub nfs_error: nfsstat4,
 }
 
 #[derive(Debug, Clone)]
@@ -126,11 +128,11 @@ pub struct FileManagerHandle {
 //                     debug!("File not found: {:?}", path);
 //                     if !filehandle_set {
 //                         Err(FileManagerError {
-//                             nfs_error: NfsStat4::Nfs4errNoent,
+//                             nfs_error: nfsstat4::Nfs4errNoent,
 //                         })
 //                     } else {
 //                         Err(FileManagerError {
-//                             nfs_error: NfsStat4::Nfs4errStale,
+//                             nfs_error: nfsstat4::Nfs4errStale,
 //                         })
 //                     }
 //                 } else {
@@ -141,12 +143,12 @@ pub struct FileManagerHandle {
 //                     // server should return NFS4ERR_STALE to the client (as is the case for
 //                     // persistent filehandles)
 //                     Err(FileManagerError {
-//                         nfs_error: NfsStat4::Nfs4errStale,
+//                         nfs_error: nfsstat4::Nfs4errStale,
 //                     })
 //                 }
 //             }
 //             Err(_) => Err(FileManagerError {
-//                 nfs_error: NfsStat4::Nfs4errServerfault,
+//                 nfs_error: nfsstat4::Nfs4errServerfault,
 //             }),
 //         }
 //     }
@@ -187,11 +189,11 @@ pub struct FileManagerHandle {
 //                     return Ok(attrs);
 //                 }
 //                 Err(FileManagerError {
-//                     nfs_error: NfsStat4::Nfs4errBadhandle,
+//                     nfs_error: nfsstat4::Nfs4errBadhandle,
 //                 })
 //             }
 //             Err(_) => Err(FileManagerError {
-//                 nfs_error: NfsStat4::Nfs4errServerfault,
+//                 nfs_error: nfsstat4::Nfs4errServerfault,
 //             }),
 //         }
 //     }
@@ -226,11 +228,11 @@ pub struct FileManagerHandle {
 //                 }
 //                 Err(FileManagerError {
 //                     // TODO: check if this is the correct error
-//                     nfs_error: NfsStat4::Nfs4errBadhandle,
+//                     nfs_error: nfsstat4::Nfs4errBadhandle,
 //                 })
 //             }
 //             Err(_) => Err(FileManagerError {
-//                 nfs_error: NfsStat4::Nfs4errServerfault,
+//                 nfs_error: nfsstat4::Nfs4errServerfault,
 //             }),
 //         }
 //     }
@@ -247,7 +249,7 @@ pub struct FileManagerHandle {
 //         match rx.await {
 //             Ok(_) => Ok(()),
 //             Err(_) => Err(FileManagerError {
-//                 nfs_error: NfsStat4::Nfs4errServerfault,
+//                 nfs_error: nfsstat4::Nfs4errServerfault,
 //             }),
 //         }
 //     }
@@ -284,7 +286,7 @@ pub struct FileManagerHandle {
 //         match rx.await {
 //             Ok(handle) => Ok(handle),
 //             Err(_) => Err(FileManagerError {
-//                 nfs_error: NfsStat4::Nfs4errServerfault,
+//                 nfs_error: nfsstat4::Nfs4errServerfault,
 //             }),
 //         }
 //     }
@@ -302,9 +304,9 @@ pub struct FileManagerHandle {
 //         &mut self,
 //         attr_request: &Vec<FileAttr>,
 //         filehandle: &FilehandleVfs,
-//     ) -> Option<(Attrlist4<FileAttr>, Attrlist4<FileAttrValue>)> {
-//         let mut answer_attrs = Attrlist4::<FileAttr>::new(None);
-//         let mut attrs = Attrlist4::<FileAttrValue>::new(None);
+//     ) -> Option<(attrlist4<FileAttr>, attrlist4<FileAttrValue>)> {
+//         let mut answer_attrs = attrlist4::<FileAttr>::new(None);
+//         let mut attrs = attrlist4::<FileAttrValue>::new(None);
 
 //         for fileattr in attr_request {
 //             match fileattr {
@@ -413,9 +415,9 @@ pub struct FileManagerHandle {
 //     pub fn set_attr(
 //         &self,
 //         filehandle: &FilehandleVfs,
-//         attr_vals: &Attrlist4<FileAttrValue>,
-//     ) -> Attrlist4<FileAttr> {
-//         let mut attrsset = Attrlist4::<FileAttr>::new(None);
+//         attr_vals: &attrlist4<FileAttrValue>,
+//     ) -> attrlist4<FileAttr> {
+//         let mut attrsset = attrlist4::<FileAttr>::new(None);
 //         for attr in attr_vals.iter() {
 //             match attr {
 //                 FileAttrValue::Size(args) => {
@@ -439,23 +441,23 @@ pub struct FileManagerHandle {
 //         attrsset
 //     }
 
-//     pub fn attr_lease_time(&self) -> NfsLease4 {
+//     pub fn attr_lease_time(&self) -> nfs_lease4 {
 //         self.lease_time
 //     }
 
-//     pub fn attr_rdattr_error(&self) -> NfsStat4 {
+//     pub fn attr_rdattr_error(&self) -> nfsstat4 {
 //         // rdattr_error:
 //         // The server uses this to specify the behavior of the client when
 //         // reading attributes.  See Section 4 for additional description.
-//         NfsStat4::Nfs4errInval
+//         nfsstat4::Nfs4errInval
 //     }
 
-//     pub fn attr_supported_attrs(&self) -> Attrlist4<FileAttr> {
+//     pub fn attr_supported_attrs(&self) -> attrlist4<FileAttr> {
 //         // supported_attrs:
 //         // The bit vector that would retrieve all REQUIRED and RECOMMENDED
 //         // attributes that are supported for this object.  The scope of this
 //         //attribute applies to all objects with a matching fsid.
-//         Attrlist4::<FileAttr>::new(Some(vec![
+//         attrlist4::<FileAttr>::new(Some(vec![
 //             FileAttr::SupportedAttrs,
 //             FileAttr::Type,
 //             FileAttr::FhExpireType,
@@ -564,7 +566,7 @@ pub struct WriteBytesRequest {
     // seek offset
     pub offset: u64,
     // bytes to insert
-    pub data: Vec<u8>,
+    pub data: Bytes,
 }
 
 #[derive(Debug, Clone)]
@@ -582,9 +584,12 @@ impl WriteCacheHandle {
         Self { sender }
     }
 
-    pub async fn write_bytes(&self, offset: u64, data: Vec<u8>) {
+    pub async fn write_bytes(&self, offset: u64, data: &Bytes) {
         self.sender
-            .send(WriteCacheMessage::Write(WriteBytesRequest { offset, data }))
+            .send(WriteCacheMessage::Write(WriteBytesRequest {
+                offset,
+                data: data.clone(),
+            }))
             .await
             .unwrap();
     }
