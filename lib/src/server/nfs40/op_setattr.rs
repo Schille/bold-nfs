@@ -15,7 +15,7 @@ impl NfsOperation for SETATTR4args<Bytes> {
             "Operation 34: SETATTR - Set Attributes {:?}, with request {:?}",
             self, request
         );
-        let filehandle = request.current_filehandle_vfs();
+        let filehandle = request.current_filehandle_vfs().await;
         match filehandle {
             None => {
                 error!("None filehandle");
@@ -31,10 +31,10 @@ impl NfsOperation for SETATTR4args<Bytes> {
             Some(filehandle) => {
                 let attrsset = if !self.obj_attributes.attrmask.0.is_empty() {
                     let file_manager = request.file_manager.clone();
-                    let rmanager = file_manager.read().unwrap();
+                    let rmanager = file_manager.read().await;
 
                     let attrsset = rmanager
-                        .set_attr(&filehandle, &self.obj_attributes.attr_vals.clone().into());
+                        .set_attr(&filehandle, &self.obj_attributes.attr_vals.decode(&self.obj_attributes.attrmask).unwrap()).await;
 
                     // request
                     //     .file_manager()

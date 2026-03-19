@@ -1,7 +1,8 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, RwLock},
+    sync::{Arc},
 };
+use async_lock::RwLock;
 
 use bold_proto::nfs4_proto::xdr::{nfs_fh4, nfsstat4};
 use bytes::Bytes;
@@ -70,11 +71,11 @@ impl<'a> NfsRequest<'a> {
         }
     }
 
-    pub fn current_filehandle_vfs(&self) -> Option<FilehandleVfs> {
+    pub async fn current_filehandle_vfs(&self) -> Option<FilehandleVfs> {
         // TODO handle None
         match self.filehandle {
             Some(ref fh) => {
-                let rmanager = self.file_manager.read().unwrap();
+                let rmanager = self.file_manager.read().await;
                 let fh_vfs = rmanager.fhdb.get_by_id(&fh);
                 if let Some(fh_vfs) = fh_vfs {
                     return Some(fh_vfs.clone());
@@ -132,11 +133,11 @@ impl<'a> NfsRequest<'a> {
         }
     }
 
-    pub fn set_filehandle(
+    pub async fn set_filehandle(
         &mut self,
         filehandle_id: &nfs_fh4<Bytes>,
     ) -> Result<FilehandleVfs, nfsstat4> {
-        let rmanager = self.file_manager.read().unwrap();
+        let rmanager = self.file_manager.read().await;
         let fh: Option<&FilehandleVfs> = rmanager.fhdb.get_by_id(filehandle_id);
         match fh {
             Some(fh) => {

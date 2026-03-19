@@ -1,5 +1,6 @@
-use std::io::{Seek, SeekFrom, Write};
-
+use std::io::{SeekFrom};
+use futures::AsyncWriteExt;
+use futures::AsyncSeekExt;
 use async_trait::async_trait;
 use bytes::Bytes;
 use tracing::{debug, error};
@@ -24,7 +25,7 @@ impl NfsOperation for WRITE4args<Bytes> {
             self, request
         );
 
-        let current_filehandle = request.current_filehandle_vfs();
+        let current_filehandle = request.current_filehandle_vfs().await;
         let filehandle = match current_filehandle {
             Some(filehandle) => filehandle,
             None => {
@@ -49,8 +50,8 @@ impl NfsOperation for WRITE4args<Bytes> {
                 None => {
                     request.drop_filehandle_from_cache(&filehandle.id);
                     let file_manager = request.file_manager.clone();
-                    let rmanager = file_manager.read().unwrap();
-                    let cache_handle = rmanager.get_cache_handle(&filehandle);
+                    let rmanager = file_manager.read().await;
+                    let cache_handle = rmanager.get_cache_handle(&filehandle).await;
                     request.cache_writehandle(filehandle.id.clone(), cache_handle.clone());
                     cache_handle
                 }
@@ -59,13 +60,13 @@ impl NfsOperation for WRITE4args<Bytes> {
             write_cache.write_bytes(self.offset.0, &self.data).await;
         } else {
             // write to file
-            let mut file = filehandle.file.append_file().unwrap();
-            let _ = file.seek(SeekFrom::Start(self.offset.0 as u64));
-            count = file.write(&self.data).unwrap() as u32;
+            let mut file = filehandle.file.append_file().await.unwrap();
+            // let _ = file.seek(SeekFrom::Start(self.offset.0 as u64));
+            count = file.write(&self.data).await.unwrap() as u32;
             stable = stable_how4::FILE_SYNC4;
 
             if count > 0 {
-                file.flush().unwrap();
+                file.flush().await.unwrap();
                 // request.file_manager().touch_file(filehandle.id).await;
             }
         }

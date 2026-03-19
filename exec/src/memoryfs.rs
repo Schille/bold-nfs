@@ -1,5 +1,6 @@
-use bold::vfs;
+use bold::{AsyncVfsPath, async_vfs::AsyncMemoryFS};
 use serde::Deserialize;
+use futures::AsyncWriteExt;
 
 #[derive(Deserialize, PartialEq, Debug)]
 pub struct Directory {
@@ -19,26 +20,22 @@ pub enum Node {
     File(File),
 }
 
-pub fn create_memory_fs(fs_root: Directory) -> vfs::VfsPath {
-    fn create_dir(fs: &vfs::VfsPath, dir: &Directory) {
+pub async fn create_memory_fs(fs_root: Directory) -> AsyncVfsPath {
+    async fn create_dir(fs: &AsyncVfsPath, dir: &Directory) {
         let dir_path = fs.join(&dir.name).unwrap();
-        dir_path.create_dir_all().unwrap();
+        dir_path.create_dir_all().await.unwrap();
         for node in &dir.contents {
             match node {
-                Node::Dir(dir) => create_dir(&dir_path, dir),
+                Node::Dir(dir) => Box::pin(create_dir(&dir_path, dir)).await,
                 Node::File(file) => {
                     let file_path = dir_path.join(&file.name).unwrap();
-                    file_path
-                        .create_file()
-                        .unwrap()
-                        .write_all(file.contents.as_bytes())
-                        .unwrap();
+                    file_path.create_file().await.unwrap().write_all(file.contents.as_bytes()).await.unwrap();
                 }
             }
         }
     }
 
-    let root: vfs::VfsPath = vfs::MemoryFS::new().into();
-    create_dir(&root, &fs_root);
+    let root = AsyncMemoryFS::new().into();
+    create_dir(&root, &fs_root).await;
     root
 }

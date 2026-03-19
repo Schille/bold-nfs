@@ -1,5 +1,8 @@
 use async_trait::async_trait;
 use bytes::Bytes;
+use futures::StreamExt;
+use futures::stream::Collect;
+use vfs::async_vfs::AsyncVfsPath;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use tracing::{debug, error};
@@ -19,7 +22,7 @@ impl NfsOperation for READDIR4args<Bytes> {
             self, request
         );
 
-        let current_fh = request.current_filehandle_vfs();
+        let current_fh = request.current_filehandle_vfs().await;
         let dir_fh = match current_fh {
             Some(filehandle) => filehandle,
             None => {
@@ -32,7 +35,7 @@ impl NfsOperation for READDIR4args<Bytes> {
             }
         };
 
-        if !dir_fh.file.is_dir().unwrap_or(false) {
+        if !dir_fh.file.is_dir().await.unwrap_or(false) {
             return NfsOpResponse {
                 request,
                 result: None,
@@ -40,8 +43,9 @@ impl NfsOperation for READDIR4args<Bytes> {
             };
         }
 
-        let dir_entries = match dir_fh.file.read_dir() {
-            Ok(dir) => dir,
+
+        let dir_entries: Vec<AsyncVfsPath> = match dir_fh.file.read_dir().await {
+            Ok(dir) => dir.collect().await,
             Err(e) => {
                 error!("Failed to read directory: {:?}", e);
                 return NfsOpResponse {
@@ -98,21 +102,21 @@ impl NfsOperation for READDIR4args<Bytes> {
             // We'll need attributes too
             let file_manager = request.file_manager.clone();
             let fh = {
-                let rmanager = file_manager.read().unwrap();
+                let rmanager = file_manager.read().await;
                 rmanager.get_filehandle_by_path(&entry.as_str().to_string())
             };
 
             let fh = match fh {
                 Some(fh) => fh,
                 None => {
-                    let mut wmanager = file_manager.write().unwrap();
-                    wmanager.get_filehandle(&entry)
+                    let mut wmanager = file_manager.write().await;
+                    wmanager.get_filehandle(&entry).await
                 }
             };
 
             let attr_resp = {
-                let rmanager = file_manager.read().unwrap();
-                rmanager.filehandle_attrs(self.attr_request.clone().into(), &fh)
+                let rmanager = file_manager.read().await;
+                rmanager.filehandle_attrs(self.attr_request.clone().into(), &fh).await
             };
 
             let (answer_attrs, attrs) = match attr_resp {
@@ -210,7 +214,7 @@ mod integration_tests {
         // dummy fs, empty
         let request = create_nfs40_server(None).await;
         let file_manager = request.file_manager.clone();
-        let manager = file_manager.read().unwrap();
+        let manager = file_manager.read().await;
         let fh = manager.get_filehandle_by_path(&String::from("/"));
 
         let putfh_args = PUTFH4args {
@@ -240,9 +244,9 @@ mod integration_tests {
 
         // a more filled directory, still eof = true
 
-        let request = create_nfs40_server(Some(create_fake_fs())).await;
+        let request = create_nfs40_server(Some(create_fake_fs().await)).await;
         let file_manager = request.file_manager.clone();
-        let manager = file_manager.read().unwrap();
+        let manager = file_manager.read().await;
         let fh = manager.get_filehandle_by_path(&String::from("/"));
 
         let putfh_args = PUTFH4args {
@@ -282,7 +286,7 @@ mod integration_tests {
     #[tokio::test]
     #[traced_test]
     async fn test_read_directory_with_cookie() {
-        let request = create_nfs40_server(Some(create_fake_fs())).await;
+        let request = create_nfs40_server(Some(create_fake_fs().await)).await;
         let file_manager = request.file_manager.clone();
         let manager = file_manager.read().unwrap();
         let fh = manager.get_filehandle_by_path(&String::from("/"));
@@ -339,7 +343,7 @@ mod integration_tests {
     #[tokio::test]
     #[traced_test]
     async fn test_read_directory_limits() {
-        let request = create_nfs40_server(Some(create_fake_fs())).await;
+        let request = create_nfs40_server(Some(create_fake_fs().await)).await;
         let file_manager = request.file_manager.clone();
         let manager = file_manager.read().unwrap();
         let fh = manager.get_filehandle_by_path(&String::from("/"));

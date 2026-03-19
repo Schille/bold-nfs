@@ -14,7 +14,7 @@ impl NfsOperation for CLOSE4args<Bytes> {
             self, request
         );
 
-        let current_filehandle = request.current_filehandle_vfs().unwrap();
+        let current_filehandle = request.current_filehandle_vfs().await.unwrap();
         request.drop_filehandle_from_cache(&current_filehandle.id);
         NfsOpResponse {
             request,

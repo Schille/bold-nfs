@@ -13,7 +13,7 @@ impl NfsOperation for PUTFH4args<Bytes> {
             self, request
         );
 
-        let fh_vfs = request.set_filehandle(&self.object);
+        let fh_vfs = request.set_filehandle(&self.object).await;
 
         match fh_vfs {
             Ok(fh) => {
@@ -52,7 +52,7 @@ mod integration_tests {
     async fn test_put_filehandle() {
         let request = create_nfs40_server(None).await;
         let file_manager = request.file_manager.clone();
-        let manager = file_manager.read().unwrap();
+        let manager = file_manager.read().await;
         let fh = manager.get_filehandle_by_path(&String::from("/"));
         let args = PUTFH4args {
             object: fh.unwrap().id,

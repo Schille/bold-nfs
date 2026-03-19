@@ -21,7 +21,7 @@ impl NfsOperation for COMMIT4args {
             "Operation 5: COMMIT - Commit Cached Data {:?}, with request {:?}",
             self, request
         );
-        let current_filehandle = request.current_filehandle_vfs();
+        let current_filehandle = request.current_filehandle_vfs().await;
         let filehandle = match current_filehandle {
             Some(filehandle) => filehandle,
             None => {

@@ -38,11 +38,11 @@ pub struct NFS40Server;
 impl NFS40Server {
     async fn put_root_filehandle<'a>(&self, mut request: NfsRequest<'a>) -> NfsOpResponse<'a> {
         let file_manager = request.file_manager.clone();
-        let manager = file_manager.read().unwrap();
+        let manager = file_manager.read().await;
 
         match manager.get_filehandle_by_path(&String::from("/")) {
             Some(filehandle) => {
-                request.set_filehandle(&filehandle.id);
+                request.set_filehandle(&filehandle.id).await;
                 NfsOpResponse {
                     request,
                     result: Some(nfs_resop4::OP_PUTROOTFH(PUTROOTFH4res {
@@ -128,15 +128,14 @@ impl NfsProtoImpl for NFS40Server {
     ) -> (NfsRequest<'a>, ReplyBody<Bytes, Bytes>) {
         let mut last_status = nfsstat4::NFS4_OK;
         let payload = msg.payload();
-        debug!("Payload {:#x}", payload);
         let compound_args: Result<COMPOUND4args<Bytes>, Error> =
             COMPOUND4args::try_from(payload.clone());
-        debug!("compound_args {:?}", compound_args);
         let res: Vec<nfs_resop4<Bytes>> = match compound_args {
             Ok(args) => {
                 let mut resarray = Vec::with_capacity(args.argarray.len());
                 // The server will process the COMPOUND procedure by evaluating each of
                 // the operations within the COMPOUND procedure in order.
+                debug!("Now running ops {:?}", args.argarray);
                 for arg in args.argarray {
                     let response = match arg {
                         nfs_argop4::OP_GETFH => __self.get_current_filehandle(request),
@@ -186,6 +185,7 @@ impl NfsProtoImpl for NFS40Server {
                     if let Some(res) = res {
                         resarray.push(res);
                     } else {
+                        resarray.push(nfs_resop4::OP_ILLEGAL(ILLEGAL4res { status: last_status.clone() }));
                         request = response.request;
                         break;
                     }

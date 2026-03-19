@@ -575,9 +575,9 @@ pub struct WriteCacheHandle {
 }
 
 impl WriteCacheHandle {
-    pub fn new(filehandle: FilehandleVfs) -> Self {
+    pub async fn new(filehandle: FilehandleVfs) -> Self {
         let (sender, receiver) = mpsc::channel(16);
-        let write_cache = WriteCache::new(receiver, filehandle);
+        let write_cache = WriteCache::new(receiver, filehandle).await;
         // start the writecache actor
         tokio::spawn(run_file_write_cache(write_cache));
 

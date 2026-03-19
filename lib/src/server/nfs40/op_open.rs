@@ -15,8 +15,8 @@ use bold_proto::nfs4_proto::xdr::{
     OPEN4args,
 };
 
-async fn open_for_reading<'a>(file: &String, mut request: NfsRequest<'a>) -> NfsOpResponse<'a> {
-    let filehandle = request.current_filehandle_vfs();
+async fn open_for_reading<'a>(args: &OPEN4args<Bytes>, file: &String, mut request: NfsRequest<'a>) -> NfsOpResponse<'a> {
+    let filehandle = request.current_filehandle_vfs().await;
     let path = &filehandle.unwrap().path;
 
     let fh_path = {
@@ -30,20 +30,42 @@ async fn open_for_reading<'a>(file: &String, mut request: NfsRequest<'a>) -> Nfs
     debug!("open_for_reading {:?}", fh_path);
 
     let file_manager = request.file_manager.clone();
-    let manager = file_manager.read().unwrap();
-    let filehandle = manager.get_filehandle_by_path(&fh_path);
-
-    let filehandle = if let Some(filehandle_vfs) = filehandle {
-        filehandle_vfs.id
-    } else {
-        return NfsOpResponse {
-            request,
-            result: None,
-            status: nfsstat4::NFS4ERR_STALE,
-        };
+    
+    let filehandle = {
+        let manager = file_manager.read().await;
+        manager.get_filehandle_by_path(&fh_path)
     };
 
-    request.set_filehandle(&filehandle);
+    let mut filehandle = if let Some(filehandle_vfs) = filehandle {
+        filehandle_vfs
+    } else {
+        let mut manager: async_lock::RwLockWriteGuard<'_, crate::server::filemanager::FileManager> = file_manager.write().await;
+        let req_file = manager.root.join(&fh_path).unwrap();
+        debug!("open_for_reading req_file {:?}", req_file);
+        if req_file.exists().await.unwrap() {
+            let new_fh = manager.get_filehandle(&req_file).await;
+            new_fh
+        } else {
+            return NfsOpResponse {
+                request,
+                result: None,
+                status: nfsstat4::NFS4ERR_STALE,
+            }
+        }
+        
+    };
+
+    // check existing lock
+    let filehandle = {
+        let file_manager = request.file_manager.clone();
+        let mut wmanager = file_manager.write().await;
+        wmanager.create_shared_reservation(&mut filehandle, args.owner.clientid.0, args.owner.owner.clone());
+        let filehandle = wmanager.attach_locks(filehandle);
+        filehandle
+    };
+    
+
+    let _ = request.set_filehandle(&filehandle.id);
 
     NfsOpResponse {
         request,
@@ -91,15 +113,15 @@ async fn open_for_writing<'a>(
     let filehandle = match how {
         createhow4::UNCHECKED4(_fattr) => {
             let file_manager = request.file_manager.clone();
-            let mut wmanager = file_manager.write().unwrap();
+            let mut wmanager = file_manager.write().await;
 
             let filehandle_vfs = wmanager.create_file(
                 &newfile_op.unwrap(),
                 args.owner.clientid.0,
-                args.owner.owner.to_vec(),
+                args.owner.owner.clone(),
                 args.share_access,
                 args.share_deny,
-            );
+            ).await;
 
             match filehandle_vfs {
                 Some(filehandle) => filehandle,
@@ -114,15 +136,15 @@ async fn open_for_writing<'a>(
         }
         createhow4::EXCLUSIVE4(verifier) => {
             let file_manager = request.file_manager.clone();
-            let mut wmanager = file_manager.write().unwrap();
+            let mut wmanager = file_manager.write().await;
 
             let filehandle_vfs = wmanager.create_file(
                 &newfile_op.unwrap(),
                 args.owner.clientid.0,
-                args.owner.owner.to_vec(),
+                args.owner.owner.clone(),
                 args.share_access,
                 args.share_deny,
-            );
+            ).await;
 
             match filehandle_vfs {
                 Some(filehandle) => filehandle,
@@ -145,7 +167,7 @@ async fn open_for_writing<'a>(
         }
     };
 
-    request.set_filehandle(&filehandle.id);
+    request.set_filehandle(&filehandle.id).await;
     // we expect this filehandle to have one lock (for the shared reservation)
     let lock = &filehandle.locks[0];
 
@@ -180,7 +202,7 @@ impl NfsOperation for OPEN4args<Bytes> {
             self, request
         );
         // open sets the current filehandle to the looked up filehandle
-        let current_filehandle = request.current_filehandle_vfs();
+        let current_filehandle = request.current_filehandle_vfs().await;
         let filehandle = match current_filehandle {
             Some(filehandle) => filehandle,
             None => {
@@ -195,7 +217,7 @@ impl NfsOperation for OPEN4args<Bytes> {
 
         // If the current filehandle is not a directory, the error
         // NFS4ERR_NOTDIR will be returned.
-        if !filehandle.file.is_dir().unwrap() {
+        if !filehandle.file.is_dir().await.unwrap() {
             error!("Not a directory");
             return NfsOpResponse {
                 request,
@@ -223,7 +245,7 @@ impl NfsOperation for OPEN4args<Bytes> {
         // If the component is of zero length, NFS4ERR_INVAL will be returned.
         // The component is also subject to the normal UTF-8, character support,
         // and name checks.  See Section 12.7 for further discussion.
-        if file.0 .0.is_empty() {
+        if file.0.0.is_empty() {
             error!("Empty file name");
             return NfsOpResponse {
                 request,
@@ -233,9 +255,13 @@ impl NfsOperation for OPEN4args<Bytes> {
         }
 
         match &self.openhow {
+            openflag4::OPEN4_NOCREATE => {
+                // Open a file for reading
+                open_for_reading(self, &file.0 .0, request).await
+            }
             openflag4::default => {
                 // Open a file for reading
-                open_for_reading(&file.0 .0, request).await
+                open_for_reading(self, &file.0 .0, request).await
             }
             openflag4::OPEN4_CREATE(how) => {
                 // Open a file for writing

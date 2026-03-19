@@ -17,7 +17,7 @@ impl NfsOperation for LOOKUP4args {
             "Operation 15: LOOKUP - Look Up Filename {:?}, with request {:?}",
             self, request
         );
-        let current_fh = request.current_filehandle_vfs();
+        let current_fh = request.current_filehandle_vfs().await;
         let filehandle = match current_fh {
             Some(filehandle) => filehandle,
             None => {
@@ -35,15 +35,18 @@ impl NfsOperation for LOOKUP4args {
             path.push_str(self.objname.0 .0.as_str());
         } else {
             path.push('/');
-            path.push_str(self.objname.0 .0.as_str());
+            path.push_str(self.objname.0.0.as_str());
         }
 
         debug!("lookup {:?}", path);
 
         let file_manager = request.file_manager.clone();
-        let rmanager = file_manager.read().unwrap();
+        let rmanager = file_manager.read().await;
         let fh = rmanager.get_filehandle_by_path(&path);
         drop(rmanager);
+
+        debug!("lookup fh {:?}", fh);
+
 
         let filehandle = match fh {
             Some(filehandle) => Some(filehandle),
@@ -51,9 +54,9 @@ impl NfsOperation for LOOKUP4args {
                 // a missing file during lookup is not an error
 
                 let lookup_miss = filehandle.file.join(path).unwrap();
-                if lookup_miss.exists().unwrap() {
-                    let mut wmanager = file_manager.write().unwrap();
-                    let fh = wmanager.get_filehandle(&lookup_miss);
+                if lookup_miss.exists().await.unwrap() {
+                    let mut wmanager = file_manager.write().await;
+                    let fh = wmanager.get_filehandle(&lookup_miss).await;
                     drop(wmanager);
                     Some(fh)
                 } else {
@@ -64,18 +67,19 @@ impl NfsOperation for LOOKUP4args {
 
         if filehandle.is_none() {
             request.unset_filehandle();
+            debug!("lookup unset");
             return NfsOpResponse {
                 request,
                 result: Some(nfs_resop4::OP_LOOKUP(LOOKUP4res {
                     status: nfsstat4::NFS4ERR_NOENT,
                 })),
-                status: nfsstat4::NFS4ERR_NOENT,
+                status: nfsstat4::NFS4_OK,
             };
         }
 
         // lookup sets the current filehandle to the looked up filehandle
-        let _ = request.set_filehandle(&filehandle.unwrap().id);
-
+        let _ = request.set_filehandle(&filehandle.unwrap().id).await;
+        debug!("lookup done");
         NfsOpResponse {
             request,
             result: Some(nfs_resop4::OP_LOOKUP(LOOKUP4res {
@@ -101,9 +105,9 @@ mod integration_tests {
     #[tokio::test]
     #[traced_test]
     async fn test_lookup() {
-        let request = create_nfs40_server(Some(create_fake_fs())).await;
+        let request = create_nfs40_server(Some(create_fake_fs().await)).await;
         let file_manager = request.file_manager.clone();
-        let manager = file_manager.read().unwrap();
+        let manager = file_manager.read().await;
         let fh = manager.get_filehandle_by_path(&String::from("/"));
 
         let putfh_args = PUTFH4args {

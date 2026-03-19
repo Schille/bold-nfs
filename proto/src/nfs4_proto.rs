@@ -143,7 +143,6 @@ pub mod xdr {
 
             // Advance the buffer cursor, including any padding.
             self.advance(n + pad_length(n));
-
             Ok(data)
         }
 
@@ -165,7 +164,6 @@ pub mod xdr {
             for _ in 0..n {
                 let t = T::try_from(self.clone())?;
                 if self.remaining() < t.wire_size() {
-                    debug!("Sheet {:?} {:?}", self.remaining(), t.wire_size());
                     return Err(Error::InvalidLength);
                 }
                 self.advance(t.wire_size());
@@ -1937,6 +1935,7 @@ pub mod xdr {
     where
         T: AsRef<[u8]> + Debug,
     {
+        OPEN4_NOCREATE,
         OPEN4_CREATE(createhow4<T>),
         default,
     }
@@ -2993,6 +2992,7 @@ pub mod xdr {
         fn serialize(&self, dst: &mut BytesMut) {
             let n_start = dst.len();
             self.eof.serialize(dst);
+            dst.put_u32(self.data.as_ref().len() as u32);
             self.data.serialize(dst);
             for _ in 0..pad_length(dst.len() - n_start) {
                 dst.put_u8(0)
@@ -5306,9 +5306,15 @@ pub mod xdr {
         type Error = Error;
 
         fn try_from(mut v: Bytes) -> Result<Self, Self::Error> {
-            Ok(LOOKUP4args {
+            
+            
+            let d = LOOKUP4args {
                 objname: component4::try_from(&mut v)?,
-            })
+            };
+
+
+            debug!("LOOKUP {:?}", d);
+            Ok(d)
         }
     }
     impl TryFrom<Bytes> for LOOKUP4res {
@@ -9767,6 +9773,9 @@ pub mod xdr {
         fn try_from(mut v: &mut Bytes) -> Result<Self, Self::Error> {
             let opentype = opentype4::try_from(&mut *v)?;
             Ok(match opentype {
+                c if c == opentype4::OPEN4_NOCREATE as opentype4 => {
+                    Self::OPEN4_NOCREATE
+                },
                 c if c == opentype4::OPEN4_CREATE as opentype4 => {
                     Self::OPEN4_CREATE(createhow4::try_from(&mut *v)?)
                 }
@@ -9778,7 +9787,9 @@ pub mod xdr {
         type Error = Error;
 
         fn try_from(mut v: &mut Bytes) -> Result<Self, Self::Error> {
-            Ok(match v.read_i32()? {
+            let d=v.read_i32()?;
+            debug!("opentype4 {:?}", d);
+            Ok(match d {
                 0 => Self::OPEN4_NOCREATE,
                 1 => Self::OPEN4_CREATE,
                 d => return Err(Error::UnknownVariant(d as i32)),
@@ -10238,7 +10249,7 @@ pub mod xdr {
                 + self.owner.wire_size()
                 + self.openhow.wire_size()
                 + self.claim.wire_size()
-                + 0
+                + 4
         }
     }
     impl WireSize for OPEN4res<Bytes> {
@@ -10526,7 +10537,7 @@ pub mod xdr {
                 + self.stable.wire_size()
                 + self.data.wire_size()
                 + pad_length(self.data.wire_size())
-                + 0
+                + 4
         }
     }
     impl WireSize for WRITE4res<Bytes> {
@@ -11250,6 +11261,7 @@ pub mod xdr {
     impl WireSize for openflag4<Bytes> {
         fn wire_size(&self) -> usize {
             4 + match self {
+                Self::OPEN4_NOCREATE => 0,
                 Self::OPEN4_CREATE(inner) => inner.wire_size(),
                 Self::default => 0,
             }

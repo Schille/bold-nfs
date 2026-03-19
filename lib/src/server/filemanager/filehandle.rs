@@ -6,7 +6,7 @@ use std::{
 use bytes::Bytes;
 use multi_index_map::MultiIndexMap;
 use tracing::debug;
-use vfs::VfsPath;
+use vfs::async_vfs::AsyncVfsPath;
 
 use bold_proto::nfs4_proto::xdr::{
     fsid4, nfs_fh4, nfs_ftype4, nfstime4, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR,
@@ -21,7 +21,7 @@ pub type FilehandleDb = MultiIndexFilehandleVfsMap;
 pub struct FilehandleVfs {
     #[multi_index(hashed_unique)]
     pub id: nfs_fh4<Bytes>,
-    pub file: VfsPath,
+    pub file: AsyncVfsPath,
     // path:
     // the full path of the file including filename
     #[multi_index(hashed_unique)]
@@ -80,7 +80,7 @@ pub struct FilehandleVfs {
 }
 
 impl FilehandleVfs {
-    pub fn new(file: VfsPath, id: nfs_fh4<Bytes>, version: u64) -> Self {
+    pub fn new(file: AsyncVfsPath, id: nfs_fh4<Bytes>, version: u64) -> Self {
         // let init_time = Self::attr_time_access();
         let mut path = file.as_str().to_string();
         if path.is_empty() {
@@ -109,18 +109,18 @@ impl FilehandleVfs {
         }
     }
 
-    pub fn attr_type(&self) -> nfs_ftype4 {
-        if self.file.is_dir().unwrap() {
+    pub async fn attr_type(&self) -> nfs_ftype4 {
+        if self.file.is_dir().await.unwrap() {
             return nfs_ftype4::NF4DIR;
         }
-        if self.file.is_file().unwrap() {
+        if self.file.is_file().await.unwrap() {
             return nfs_ftype4::NF4REG;
         }
         nfs_ftype4::NF4SOCK
     }
 
-    pub fn attr_change(&self, default: u64) -> u64 {
-        let v = self.file.metadata();
+    pub async fn attr_change(&self, default: u64) -> u64 {
+        let v = self.file.metadata().await;
         debug!("### attr_change ### {:?}", v);
         if v.is_ok() {
             if let Some(v) = v.unwrap().modified {
@@ -153,12 +153,12 @@ impl FilehandleVfs {
         "1000".to_string()
     }
 
-    pub fn attr_size(&self) -> u64 {
-        self.file.metadata().unwrap().len
+    pub async fn attr_size(&self) -> u64 {
+        self.file.metadata().await.unwrap().len
     }
 
-    pub fn attr_space_used(&self) -> u64 {
-        self.file.metadata().unwrap().len
+    pub async fn attr_space_used(&self) -> u64 {
+        self.file.metadata().await.unwrap().len
     }
 
     pub fn attr_time_access(&self) -> nfstime4 {

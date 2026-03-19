@@ -17,7 +17,7 @@ impl NfsOperation for REMOVE4args {
             "Operation 28: REMOVE - Remove File System Object {:?}, with request {:?}",
             self, request
         );
-        let filehandle = request.current_filehandle_vfs();
+        let filehandle = request.current_filehandle_vfs().await;
         match filehandle {
             None => {
                 error!("None filehandle");
@@ -36,9 +36,9 @@ impl NfsOperation for REMOVE4args {
             Some(filehandle) => {
                 let target = filehandle.file.join(self.target.0 .0.clone()).unwrap();
                 let file_manager = request.file_manager.clone();
-                let mut wmanager = file_manager.write().unwrap();
-                let target_filehandle = wmanager.get_filehandle(&target);
-                wmanager.remove_file(target_filehandle);
+                let mut wmanager = file_manager.write().await;
+                let target_filehandle = wmanager.get_filehandle(&target).await;
+                wmanager.remove_file(target_filehandle).await;
                 NfsOpResponse {
                     request,
                     result: Some(nfs_resop4::OP_REMOVE(REMOVE4res::NFS4_OK(REMOVE4resok {

@@ -1,7 +1,9 @@
-use std::io::SeekFrom;
+use std::io::{Read, SeekFrom};
 
 use async_trait::async_trait;
-use bytes::Bytes;
+use futures::AsyncSeekExt;
+use futures::AsyncReadExt;
+use bytes::{Buf, Bytes, BytesMut};
 use tracing::{debug, error};
 
 use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
@@ -14,7 +16,7 @@ impl NfsOperation for READ4args<Bytes> {
             "Operation 25: READ - Read from File {:?}, with request {:?}",
             self, request
         );
-        let current_filehandle = request.current_filehandle_vfs();
+        let current_filehandle = request.current_filehandle_vfs().await;
         let filehandle = match current_filehandle {
             Some(filehandle) => filehandle,
             None => {
@@ -28,9 +30,10 @@ impl NfsOperation for READ4args<Bytes> {
         };
 
         let mut buffer: Vec<u8> = vec![0; self.count.0 as usize];
-        let mut rfile = filehandle.file.open_file().unwrap();
-        rfile.seek(SeekFrom::Start(self.offset.0)).unwrap();
-        let _ = rfile.read_exact(&mut buffer);
+        let mut rfile = filehandle.file.open_file().await.unwrap();
+        rfile.seek(SeekFrom::Start(self.offset.0));
+        let bytes_read = rfile.read(&mut buffer).await.unwrap();
+        buffer.truncate(bytes_read);
 
         NfsOpResponse {
             request,

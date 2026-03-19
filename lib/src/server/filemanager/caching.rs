@@ -1,5 +1,6 @@
 use std::io::{Cursor, Seek, SeekFrom, Write};
 
+use futures::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 
 use super::{handle::WriteCacheMessage, FilehandleVfs};
@@ -13,10 +14,10 @@ pub struct WriteCache {
 }
 
 impl WriteCache {
-    pub fn new(receiver: mpsc::Receiver<WriteCacheMessage>, filehandle: FilehandleVfs) -> Self {
+    pub async fn new(receiver: mpsc::Receiver<WriteCacheMessage>, filehandle: FilehandleVfs) -> Self {
         let mut filelike = Cursor::new(Vec::new());
-        let mut file = filehandle.file.open_file().unwrap();
-        file.read_to_end(&mut filelike.get_mut()).unwrap();
+        let mut file = filehandle.file.open_file().await.unwrap();
+        file.read_to_end(&mut filelike.get_mut()).await.unwrap();
         WriteCache {
             filelike,
             changed: false,
@@ -47,13 +48,12 @@ impl WriteCache {
             WriteCacheMessage::Commit => {
                 // commit cache
                 if self.changed {
-                    let mut file = self.filehandle.file.append_file().unwrap();
-                    let _ = file.seek(SeekFrom::Start(0));
+                    let mut file = self.filehandle.file.append_file().await.unwrap();
                     let content = self.filelike.get_ref();
-                    let count = file.write(content.as_slice()).unwrap() as u32;
+                    let count = file.write(content.as_slice()).await.unwrap() as u32;
 
                     if count > 0 {
-                        file.flush().unwrap();
+                        file.flush().await.unwrap();
                         // self.filemanager
                         //     .touch_file(self.filehandle.id.clone())
                         //     .await;

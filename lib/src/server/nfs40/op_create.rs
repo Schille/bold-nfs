@@ -5,7 +5,7 @@ use tracing::{debug, error};
 use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
 
 use bold_proto::nfs4_proto::xdr::{
-    attrlist4, bitmap4, change_info4, changeid4, createtype4, nfs_resop4, nfsstat4, CREATE4args,
+    bitmap4, change_info4, changeid4, createtype4, nfs_resop4, nfsstat4, CREATE4args,
     CREATE4res, CREATE4resok,
 };
 use bold_proto::nfs4_utils::FileAttr;
@@ -18,7 +18,7 @@ impl NfsOperation for CREATE4args<Bytes> {
             self, request
         );
 
-        let current_filehandle = request.current_filehandle_vfs();
+        let current_filehandle = request.current_filehandle_vfs().await;
         let filehandle = match current_filehandle {
             Some(filehandle) => filehandle,
             None => {
@@ -46,7 +46,7 @@ impl NfsOperation for CREATE4args<Bytes> {
             // TODO support links
             // LinkData(vec) => todo!(),
             createtype4::NF4DIR => {
-                let current_dir = if filehandle.file.is_file().unwrap() {
+                let current_dir = if filehandle.file.is_file().await.unwrap() {
                     &filehandle.file.parent()
                 } else {
                     &filehandle.file
@@ -56,16 +56,16 @@ impl NfsOperation for CREATE4args<Bytes> {
 
                 // request.file_manager().touch_file(filehandle.id).await;
                 let file_manager = request.file_manager.clone();
-                let mut wmanager = file_manager.write().unwrap();
+                let mut wmanager = file_manager.write().await;
 
-                let filehandle = wmanager.get_filehandle(&new_dir);
-                request.set_filehandle(&filehandle.id);
+                let filehandle = wmanager.get_filehandle(&new_dir).await;
+                request.set_filehandle(&filehandle.id).await;
 
                 (
                     change_info4 {
                         atomic: true,
-                        before: changeid4(filehandle.attr_change(filehandle.version)),
-                        after: changeid4(filehandle.attr_change(filehandle.version)),
+                        before: changeid4(filehandle.attr_change(filehandle.version).await),
+                        after: changeid4(filehandle.attr_change(filehandle.version).await),
                     },
                     bitmap4(Vec::new()),
                 )

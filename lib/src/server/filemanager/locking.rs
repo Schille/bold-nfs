@@ -28,7 +28,7 @@ pub struct LockingState {
     // owner:
     // The owner of the lock.
     #[multi_index(hashed_non_unique)]
-    pub owner: Vec<u8>,
+    pub owner: Bytes,
     // lock_type:
     // The type of lock being requested.
     pub lock_type: LockType,
@@ -61,7 +61,7 @@ impl LockingState {
         filehandle_id: nfs_fh4<Bytes>,
         stateid: [u8; 12],
         client_id: u64,
-        owner: Vec<u8>,
+        owner: Bytes,
         share_access: u32,
         share_deny: u32,
     ) -> Self {

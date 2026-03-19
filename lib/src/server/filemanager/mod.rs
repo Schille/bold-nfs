@@ -2,8 +2,7 @@ use std::collections::HashMap;
 
 use bold_proto::{
     nfs4_proto::xdr::{
-        attrlist4, changeid4, fsid4, nfs_fh4, nfs_lease4, nfsstat4, utf8str_cs,
-        ACL4_SUPPORT_ALLOW_ACL, FH4_VOLATILE_ANY, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR,
+        ACL4_SUPPORT_ALLOW_ACL, FH4_VOLATILE_ANY, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR, OPEN4_SHARE_ACCESS_READ, OPEN4_SHARE_DENY_NONE, attrlist4, changeid4, fsid4, nfs_fh4, nfs_lease4, nfsstat4, utf8str_cs
     },
     nfs4_utils::{FileAttr, FileAttrValue},
 };
@@ -11,6 +10,7 @@ use bold_proto::{
 mod filehandle;
 use bytes::Bytes;
 pub use filehandle::{FilehandleDb, FilehandleVfs};
+use futures::{AsyncReadExt, AsyncWriteExt};
 pub use handle::{FileManagerHandle, WriteCacheHandle};
 mod caching;
 mod handle;
@@ -19,11 +19,11 @@ mod locking;
 use handle::FileManagerMessage;
 use locking::{LockingState, LockingStateDb};
 use tracing::{debug, error};
-use vfs::VfsPath;
+use vfs::async_vfs::AsyncVfsPath;
 
 #[derive(Debug)]
 pub struct FileManager {
-    pub root: VfsPath,
+    pub root: AsyncVfsPath,
     pub lease_time: nfs_lease4,
     pub hard_link_support: bool,
     pub symlink_support: bool,
@@ -42,7 +42,7 @@ pub struct FileManager {
 }
 
 impl FileManager {
-    pub fn new(root: VfsPath, fsid: Option<u64>) -> Self {
+    pub async fn new(root: AsyncVfsPath, fsid: Option<u64>) -> Self {
         let fsid = fsid.unwrap_or(152);
         let boot_time = std::time::UNIX_EPOCH.elapsed().unwrap().as_secs();
         let mut fmanager = FileManager {
@@ -61,7 +61,7 @@ impl FileManager {
             cachedb: HashMap::new(),
         };
         // always have a root filehandle upon start
-        fmanager.root_fh();
+        fmanager.root_fh().await;
         fmanager
     }
 
@@ -207,15 +207,15 @@ impl FileManager {
         self.fhdb.insert(filehandle);
     }
 
-    pub fn create_file(
+    pub async fn create_file(
         &mut self,
-        request_file: &VfsPath,
+        request_file: &AsyncVfsPath,
         client_id: u64,
-        owner: Vec<u8>,
+        owner: Bytes,
         share_access: u32,
         share_deny: u32,
     ) -> Option<FilehandleVfs> {
-        let newfile = match request_file.create_file() {
+        let newfile = match request_file.create_file().await {
             Ok(_) => {
                 debug!("File created successfully");
                 request_file
@@ -227,7 +227,7 @@ impl FileManager {
         };
 
         // this filehandle is already added to the db
-        let mut fh = self.get_filehandle(newfile);
+        let mut fh = self.get_filehandle(newfile).await;
         let mut path = newfile.parent().as_str().to_string();
         if path.is_empty() {
             // this is root
@@ -253,11 +253,11 @@ impl FileManager {
         Some(fh)
     }
 
-    pub fn remove_file(&mut self, filehandle: FilehandleVfs) {
+    pub async fn remove_file(&mut self, filehandle: FilehandleVfs) {
         // TODO: handle file already removed
         let mut parent_path = filehandle.file.parent().as_str().to_string();
         // TODO check locks
-        if filehandle.file.is_dir().unwrap() {
+        if filehandle.file.is_dir().await.unwrap() {
             let _ = filehandle.file.read_dir();
         } else {
             let _ = filehandle.file.remove_file();
@@ -282,7 +282,7 @@ impl FileManager {
         id.try_into().unwrap()
     }
 
-    fn get_filehandle_id(&mut self, file: &VfsPath) -> nfs_fh4<Bytes> {
+    fn get_filehandle_id(&mut self, file: &AsyncVfsPath) -> nfs_fh4<Bytes> {
         // if there is already a filehandle for this path, return it
         let mut path = file.as_str().to_string();
         if path.is_empty() {
@@ -306,10 +306,10 @@ impl FileManager {
         nfs_fh4(Bytes::from_iter(id))
     }
 
-    fn get_filehandle_by_id(&mut self, id: &nfs_fh4<Bytes>) -> Option<FilehandleVfs> {
+    async fn get_filehandle_by_id(&mut self, id: &nfs_fh4<Bytes>) -> Option<FilehandleVfs> {
         let fh = self.fhdb.get_by_id(id);
         if let Some(fh) = fh {
-            if fh.file.exists().unwrap() {
+            if fh.file.exists().await.unwrap() {
                 debug!("Found filehandle: {:?}", fh);
                 return Some(fh.clone());
             } else {
@@ -326,9 +326,9 @@ impl FileManager {
         self.fhdb.get_by_path(path).cloned()
     }
 
-    pub fn get_filehandle(&mut self, file: &VfsPath) -> FilehandleVfs {
+    pub async fn get_filehandle(&mut self, file: &AsyncVfsPath) -> FilehandleVfs {
         let id = self.get_filehandle_id(file);
-        match self.get_filehandle_by_id(&id) {
+        match self.get_filehandle_by_id(&id).await {
             Some(fh) => fh.clone(),
             None => {
                 let fh = FilehandleVfs::new(file.clone(), id, 0);
@@ -339,8 +339,23 @@ impl FileManager {
         }
     }
 
-    pub fn root_fh(&mut self) -> FilehandleVfs {
-        self.get_filehandle(&self.root.clone())
+    pub async fn root_fh(&mut self) -> FilehandleVfs {
+        self.get_filehandle(&self.root.clone()).await
+    }
+
+    pub fn create_shared_reservation(&mut self, filehandle: &mut FilehandleVfs, client_id: u64, owner: Bytes) {
+        let stateid = self.get_new_lockingstate_id();
+        let lock = LockingState::new_shared_reservation(
+            filehandle.id.clone(),
+            stateid,
+            client_id,
+            owner,
+            OPEN4_SHARE_ACCESS_READ,
+            OPEN4_SHARE_DENY_NONE,
+        );
+        // add this new locking state to the db
+        self.lockdb.insert(lock.clone());
+        filehandle.locks = vec![lock];
     }
 
     pub fn attach_locks(&self, mut filehandle: FilehandleVfs) -> FilehandleVfs {
@@ -349,21 +364,21 @@ impl FileManager {
         filehandle
     }
 
-    pub fn get_cache_handle(&self, filehandle: &FilehandleVfs) -> WriteCacheHandle {
-        WriteCacheHandle::new(filehandle.clone())
+    pub async fn get_cache_handle(&self, filehandle: &FilehandleVfs) -> WriteCacheHandle {
+        WriteCacheHandle::new(filehandle.clone()).await
     }
 
-    pub fn drop_cache_handle(&mut self, filehandle_id: &nfs_fh4<Bytes>) {
+    pub async fn drop_cache_handle(&mut self, filehandle_id: &nfs_fh4<Bytes>) {
         if self.cachedb.contains_key(filehandle_id) {
             self.cachedb.remove(filehandle_id);
         }
-        let filehandle = self.get_filehandle_by_id(filehandle_id);
-        if let Some(mut filehandle) = filehandle {
+        let filehandle = self.get_filehandle_by_id(filehandle_id).await;
+        if let Some(filehandle) = filehandle {
             self.update_filehandle(filehandle);
         }
     }
 
-    pub fn set_attr(
+    pub async fn set_attr(
         &self,
         filehandle: &FilehandleVfs,
         attr_vals: &Vec<FileAttrValue>,
@@ -374,14 +389,14 @@ impl FileManager {
                 FileAttrValue::Size(args) => {
                     debug!("Set size to: {:?}", args);
                     let mut buf = vec![0_u8; *args as usize];
-                    let mut file = filehandle.file.open_file().unwrap();
-                    let _ = file.rewind();
-                    file.read_exact(&mut buf).unwrap();
+                    let mut file = filehandle.file.open_file().await.unwrap();
+                    //let _ = file.rewind();
+                    file.read_exact(&mut buf).await.unwrap();
 
-                    let mut file = filehandle.file.append_file().unwrap();
-                    let _ = file.rewind();
-                    file.write_all(&buf).unwrap();
-                    file.flush().unwrap();
+                    let mut file = filehandle.file.append_file().await.unwrap();
+                    //let _ = file.rewind();
+                    file.write_all(&buf).await.unwrap();
+                    file.flush().await.unwrap();
                     attrsset.push(FileAttr::Size);
                 }
                 _ => {
@@ -392,7 +407,7 @@ impl FileManager {
         attrsset
     }
 
-    pub fn filehandle_attrs(
+    pub async fn filehandle_attrs(
         &self,
         attr_request: Vec<FileAttr>,
         filehandle: &FilehandleVfs,
@@ -409,7 +424,7 @@ impl FileManager {
                     answer_attrs.push(FileAttr::SupportedAttrs);
                 }
                 FileAttr::Type => {
-                    attrs.push(FileAttrValue::Type(filehandle.attr_type()));
+                    attrs.push(FileAttrValue::Type(filehandle.attr_type().await));
                     answer_attrs.push(FileAttr::Type);
                 }
                 FileAttr::LeaseTime => {
@@ -418,12 +433,12 @@ impl FileManager {
                 }
                 FileAttr::Change => {
                     attrs.push(FileAttrValue::Change(changeid4(
-                        filehandle.attr_change(filehandle.version),
+                        filehandle.attr_change(filehandle.version).await,
                     )));
                     answer_attrs.push(FileAttr::Change);
                 }
                 FileAttr::Size => {
-                    attrs.push(FileAttrValue::Size(filehandle.attr_size()));
+                    attrs.push(FileAttrValue::Size(filehandle.attr_size().await));
                     answer_attrs.push(FileAttr::Size);
                 }
                 FileAttr::LinkSupport => {
@@ -483,7 +498,7 @@ impl FileManager {
                     answer_attrs.push(FileAttr::OwnerGroup);
                 }
                 FileAttr::SpaceUsed => {
-                    attrs.push(FileAttrValue::SpaceUsed(filehandle.attr_space_used()));
+                    attrs.push(FileAttrValue::SpaceUsed(filehandle.attr_space_used().await));
                     answer_attrs.push(FileAttr::SpaceUsed);
                 }
                 FileAttr::TimeAccess => {
@@ -629,7 +644,7 @@ impl FileManager {
 // #[cfg(test)]
 // mod tests {
 //     use actix::{Actor, System};
-//     use vfs::{AltrootFS, PhysicalFS, VfsPath};
+//     use vfs::{AltrootFS, PhysicalFS, AsyncVfsPath};
 
 //     use crate::server::{
 //         clientmanager::{ClientManager, ClientManagerHandler},
@@ -640,7 +655,7 @@ impl FileManager {
 
 //     #[test]
 //     fn set_current_filehandle() {
-//         let root: VfsPath = AltrootFS::new(VfsPath::new(PhysicalFS::new(
+//         let root: AsyncVfsPath = AltrootFS::new(AsyncVfsPath::new(PhysicalFS::new(
 //             std::env::current_dir().unwrap(),
 //         )))
 //         .into();

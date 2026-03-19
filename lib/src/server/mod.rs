@@ -55,7 +55,7 @@ where
         rpc_call_message: RpcMessage<Bytes, Bytes>,
         request: NfsRequest<'_>,
     ) -> Box<RpcMessage<Bytes, Bytes>> {
-        debug!("{:?}", rpc_call_message);
+        // debug!("{:?}", rpc_call_message);
 
         match rpc_call_message.call_body() {
             Some(call_body) => {
@@ -72,7 +72,7 @@ where
                 request.close().await;
                 let rpc_reply_message =
                     RpcMessage::new(rpc_call_message.xid(), MessageType::Reply(body));
-                debug!("{:?}", rpc_reply_message);
+                // debug!("{:?}", rpc_reply_message);
                 Box::new(rpc_reply_message)
             }
             _ => {

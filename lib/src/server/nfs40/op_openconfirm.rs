@@ -16,9 +16,9 @@ impl NfsOperation for OPEN_CONFIRM4args<Bytes> {
             self, request
         );
         // we expect filehandle to have one lock (for the shared reservation)
-        let fh = request.current_filehandle_vfs().unwrap();
+        let fh = request.current_filehandle_vfs().await.unwrap();
         let file_manager = request.file_manager.clone();
-        let rmanager = file_manager.read().unwrap();
+        let rmanager = file_manager.read().await;
         let fh = rmanager.attach_locks(fh);
         let lock = fh.locks[0].clone();
         // TODO check if the stateid is correct

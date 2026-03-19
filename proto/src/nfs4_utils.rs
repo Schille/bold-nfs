@@ -380,12 +380,12 @@ impl From<Vec<FileAttrValue>> for attrlist4<Bytes> {
 
 impl attrlist4<Bytes> {
     pub fn decode(
-        self,
+        &self,
         mask: &bitmap4,
     ) -> Result<Vec<FileAttrValue>, crate::nfs4_proto::xdr::Error> {
         use crate::nfs4_proto::xdr::DeserialiserExt;
         use std::convert::TryFrom;
-        let mut bytes = self.0;
+        let mut bytes = self.0.clone();
         let attrs: Vec<FileAttr> = mask.clone().into();
         let mut values = Vec::new();
 
@@ -553,15 +553,6 @@ impl attrlist4<Bytes> {
     }
 }
 
-impl Into<Vec<FileAttrValue>> for attrlist4<Bytes> {
-    fn into(self) -> Vec<FileAttrValue> {
-        // This into() cannot work without a bitmap.
-        // We provide the decode() method instead.
-        panic!(
-            "attrlist4::into::<Vec<FileAttrValue>>() is not supported. Use decode(mask) instead."
-        )
-    }
-}
 
 impl Hash for nfs_fh4<bytes::Bytes> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
