@@ -1,9 +1,9 @@
 use std::io::{Read, SeekFrom};
 
 use async_trait::async_trait;
-use futures::AsyncSeekExt;
-use futures::AsyncReadExt;
 use bytes::{Buf, Bytes, BytesMut};
+use futures::AsyncReadExt;
+use futures::AsyncSeekExt;
 use tracing::{debug, error};
 
 use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
@@ -29,17 +29,51 @@ impl NfsOperation for READ4args<Bytes> {
             }
         };
 
-        let mut buffer: Vec<u8> = vec![0; self.count.0 as usize];
-        let mut rfile = filehandle.file.open_file().await.unwrap();
-        rfile.seek(SeekFrom::Start(self.offset.0));
-        let bytes_read = rfile.read(&mut buffer).await.unwrap();
+        let count = self.count.0 as usize;
+        let mut buffer = BytesMut::with_capacity(count);
+        unsafe {
+            buffer.set_len(count);
+        }
+
+        let mut rfile = match filehandle.file.open_file().await {
+            Ok(file) => file,
+            Err(e) => {
+                error!("Error opening file: {:?}", e);
+                return NfsOpResponse {
+                    request,
+                    result: None,
+                    status: nfsstat4::NFS4ERR_IO,
+                };
+            }
+        };
+
+        if let Err(e) = rfile.seek(SeekFrom::Start(self.offset.0)).await {
+            error!("Error seeking file: {:?}", e);
+            return NfsOpResponse {
+                request,
+                result: None,
+                status: nfsstat4::NFS4ERR_IO,
+            };
+        }
+
+        let bytes_read = match rfile.read(&mut buffer).await {
+            Ok(n) => n,
+            Err(e) => {
+                error!("Error reading file: {:?}", e);
+                return NfsOpResponse {
+                    request,
+                    result: None,
+                    status: nfsstat4::NFS4ERR_IO,
+                };
+            }
+        };
         buffer.truncate(bytes_read);
 
         NfsOpResponse {
             request,
             result: Some(nfs_resop4::OP_READ(READ4res::NFS4_OK(READ4resok {
-                eof: true,
-                data: Bytes::from_owner(buffer),
+                eof: bytes_read < count,
+                data: buffer.freeze(),
             }))),
             status: nfsstat4::NFS4_OK,
         }

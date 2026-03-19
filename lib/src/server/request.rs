@@ -1,8 +1,5 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc},
-};
 use async_lock::RwLock;
+use std::{collections::HashMap, sync::Arc};
 
 use bold_proto::nfs4_proto::xdr::{nfs_fh4, nfsstat4};
 use bytes::Bytes;

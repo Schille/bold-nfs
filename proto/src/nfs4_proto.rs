@@ -5306,12 +5306,9 @@ pub mod xdr {
         type Error = Error;
 
         fn try_from(mut v: Bytes) -> Result<Self, Self::Error> {
-            
-            
             let d = LOOKUP4args {
                 objname: component4::try_from(&mut v)?,
             };
-
 
             debug!("LOOKUP {:?}", d);
             Ok(d)
@@ -9773,9 +9770,7 @@ pub mod xdr {
         fn try_from(mut v: &mut Bytes) -> Result<Self, Self::Error> {
             let opentype = opentype4::try_from(&mut *v)?;
             Ok(match opentype {
-                c if c == opentype4::OPEN4_NOCREATE as opentype4 => {
-                    Self::OPEN4_NOCREATE
-                },
+                c if c == opentype4::OPEN4_NOCREATE as opentype4 => Self::OPEN4_NOCREATE,
                 c if c == opentype4::OPEN4_CREATE as opentype4 => {
                     Self::OPEN4_CREATE(createhow4::try_from(&mut *v)?)
                 }
@@ -9787,7 +9782,7 @@ pub mod xdr {
         type Error = Error;
 
         fn try_from(mut v: &mut Bytes) -> Result<Self, Self::Error> {
-            let d=v.read_i32()?;
+            let d = v.read_i32()?;
             debug!("opentype4 {:?}", d);
             Ok(match d {
                 0 => Self::OPEN4_NOCREATE,

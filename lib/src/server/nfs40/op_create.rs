@@ -5,8 +5,8 @@ use tracing::{debug, error};
 use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
 
 use bold_proto::nfs4_proto::xdr::{
-    bitmap4, change_info4, changeid4, createtype4, nfs_resop4, nfsstat4, CREATE4args,
-    CREATE4res, CREATE4resok,
+    bitmap4, change_info4, changeid4, createtype4, nfs_resop4, nfsstat4, CREATE4args, CREATE4res,
+    CREATE4resok,
 };
 use bold_proto::nfs4_utils::FileAttr;
 

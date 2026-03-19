@@ -6,6 +6,7 @@ mod tests;
 pub use bytes::{Buf, BufMut, Bytes, BytesMut};
 pub use onc_rpc::{CallBody, RpcMessage};
 use tokio_util::codec::{Decoder, Encoder};
+use tracing::{debug, info, trace};
 
 #[derive(Debug)]
 pub struct XDRProtoCodec {}
@@ -29,21 +30,26 @@ impl Decoder for XDRProtoCodec {
     type Error = std::io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        let mut i = 0;
+        let mut offset = 0;
         let mut is_last = false;
+        let mut fragment_count = 0;
+
+        // First pass: validate full message availability
         while !is_last {
-            if src.len() < i + 4 {
-                // Not enough data to read length marker.
+            if src.len() < offset + 4 {
                 return Ok(None);
             }
 
-            // Read the frame: https://datatracker.ietf.org/doc/html/rfc1057#section-10
-            let header = u32::from_be_bytes([src[i], src[i+1], src[i+2], src[i+3]]);
-            is_last = (header & (1 << 31)) > 0;
-            let length = (header & 0x7FFF_FFFF) as usize;
+            let header_bytes = [
+                src[offset],
+                src[offset + 1],
+                src[offset + 2],
+                src[offset + 3],
+            ];
+            let fragment_header = u32::from_be_bytes(header_bytes) as usize;
+            is_last = (fragment_header & (1 << 31)) > 0;
+            let length = fragment_header & ((1 << 31) - 1);
 
-            // Check that the length is not too large to avoid a denial of
-            // service attack where the server runs out of memory.
             if length > MAX {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
@@ -51,21 +57,31 @@ impl Decoder for XDRProtoCodec {
                 ));
             }
 
-            if src.len() < i + 4 + length {
-                // The full fragment has not yet arrived.
-                src.reserve(i + 4 + length - src.len());
+            if src.len() < offset + 4 + length {
+                src.reserve(offset + 4 + length - src.len());
                 return Ok(None);
             }
-            i += 4 + length;
+
+            offset += 4 + length;
+            fragment_count += 1;
         }
 
-        let total_len = i;
-        let mem = src.split_to(total_len).freeze();
-
-        let message = RpcMessage::try_from(mem)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
-            .map(Some);
-        message
+        // Second pass: we have everything.
+        if fragment_count == 1 {
+            // Optimization for single-fragment messages: just split and return (including header)
+            let message_data = src.split_to(offset).freeze();
+            let message = RpcMessage::try_from(message_data)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+                .map(Some);
+            return message;
+        } else {
+            // Multi-fragment message: concatenate fragments INCLUDING headers
+            let message_data = src.split_to(offset).freeze();
+            let message = RpcMessage::try_from(message_data)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+                .map(Some);
+            return message;
+        }
     }
 }
 

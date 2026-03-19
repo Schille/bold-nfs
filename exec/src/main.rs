@@ -2,7 +2,7 @@ use std::fs;
 
 use bold::ServerBuilder;
 use clap::Parser;
-use futures::executor::{LocalPool};
+use futures::executor::LocalPool;
 use memoryfs::create_memory_fs;
 use tracing::Level;
 
@@ -34,13 +34,13 @@ fn main() {
     println!("Loading YAML: {:?}", fakefs);
     let contents = fs::read_to_string(fakefs).expect("Should have been able to read the file");
     let root_dir: memoryfs::Directory = serde_yaml::from_str(&contents).unwrap();
-    
+
     let root = std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
-        
+
         rt.block_on(create_memory_fs(root_dir))
     })
     .join()

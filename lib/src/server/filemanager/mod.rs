@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use bold_proto::{
     nfs4_proto::xdr::{
-        ACL4_SUPPORT_ALLOW_ACL, FH4_VOLATILE_ANY, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR, OPEN4_SHARE_ACCESS_READ, OPEN4_SHARE_DENY_NONE, attrlist4, changeid4, fsid4, nfs_fh4, nfs_lease4, nfsstat4, utf8str_cs
+        attrlist4, changeid4, fsid4, nfs_fh4, nfs_lease4, nfsstat4, utf8str_cs,
+        ACL4_SUPPORT_ALLOW_ACL, FH4_VOLATILE_ANY, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR,
+        OPEN4_SHARE_ACCESS_READ, OPEN4_SHARE_DENY_NONE,
     },
     nfs4_utils::{FileAttr, FileAttrValue},
 };
@@ -343,7 +345,12 @@ impl FileManager {
         self.get_filehandle(&self.root.clone()).await
     }
 
-    pub fn create_shared_reservation(&mut self, filehandle: &mut FilehandleVfs, client_id: u64, owner: Bytes) {
+    pub fn create_shared_reservation(
+        &mut self,
+        filehandle: &mut FilehandleVfs,
+        client_id: u64,
+        owner: Bytes,
+    ) {
         let stateid = self.get_new_lockingstate_id();
         let lock = LockingState::new_shared_reservation(
             filehandle.id.clone(),
@@ -364,8 +371,13 @@ impl FileManager {
         filehandle
     }
 
-    pub async fn get_cache_handle(&self, filehandle: &FilehandleVfs) -> WriteCacheHandle {
-        WriteCacheHandle::new(filehandle.clone()).await
+    pub async fn get_cache_handle(&mut self, filehandle: &FilehandleVfs) -> WriteCacheHandle {
+        if let Some(handle) = self.cachedb.get(&filehandle.id) {
+            return handle.clone();
+        }
+        let handle = WriteCacheHandle::new(filehandle.clone()).await;
+        self.cachedb.insert(filehandle.id.clone(), handle.clone());
+        handle
     }
 
     pub async fn drop_cache_handle(&mut self, filehandle_id: &nfs_fh4<Bytes>) {
@@ -409,7 +421,7 @@ impl FileManager {
 
     pub async fn filehandle_attrs(
         &self,
-        attr_request: Vec<FileAttr>,
+        attr_request: &[FileAttr],
         filehandle: &FilehandleVfs,
     ) -> Option<(Vec<FileAttr>, Vec<FileAttrValue>)> {
         let mut answer_attrs = Vec::new();

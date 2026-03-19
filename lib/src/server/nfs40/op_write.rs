@@ -1,8 +1,8 @@
-use std::io::{SeekFrom};
-use futures::AsyncWriteExt;
-use futures::AsyncSeekExt;
 use async_trait::async_trait;
 use bytes::Bytes;
+use futures::AsyncSeekExt;
+use futures::AsyncWriteExt;
+use std::io::SeekFrom;
 use tracing::{debug, error};
 
 use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
@@ -43,15 +43,15 @@ impl NfsOperation for WRITE4args<Bytes> {
         if self.stable == stable_how4::UNSTABLE4 {
             // write to cache
 
-            let write_cache = request.get_writehandle_from_cache(&filehandle.id);
-
-            let write_cache = match write_cache {
+            let write_cache = match request.get_writehandle_from_cache(&filehandle.id) {
                 Some(write_cache) => write_cache,
                 None => {
                     request.drop_filehandle_from_cache(&filehandle.id);
                     let file_manager = request.file_manager.clone();
-                    let rmanager = file_manager.read().await;
-                    let cache_handle = rmanager.get_cache_handle(&filehandle).await;
+                    let cache_handle = {
+                        let mut wmanager = file_manager.write().await;
+                        wmanager.get_cache_handle(&filehandle).await
+                    };
                     request.cache_writehandle(filehandle.id.clone(), cache_handle.clone());
                     cache_handle
                 }

@@ -2,20 +2,22 @@
 
 pub mod server;
 
+use async_lock::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
-use async_lock::RwLock;
+use std::time::Duration;
 
 use bold_proto::onc_rpc::{auth::AuthFlavor, AcceptedReply, ReplyBody};
 use bold_proto::onc_rpc::{AcceptedStatus, MessageType};
 use bold_proto::{RpcMessage, XDRProtoCodec};
-use futures::SinkExt;
+use bytes::Bytes;
+use futures::{SinkExt, StreamExt};
 use server::clientmanager::ClientManagerHandle;
 use server::filemanager::FileManager;
 use tokio::net::TcpListener;
-use tokio_stream::StreamExt;
+use tokio::time::timeout;
 use tokio_util::codec::Framed;
-use tracing::{error, info, span, trace, Instrument, Level};
+use tracing::{debug, error, info, span, trace, Instrument, Level};
 pub use vfs::async_vfs;
 pub use vfs::async_vfs::AsyncVfsPath;
 
@@ -67,19 +69,47 @@ impl NFSServer {
                             let nfs_protocol = self.service_0.as_ref().unwrap().clone();
 
                             tokio::spawn(async move {
-                                let _ = stream.set_nodelay(true);
+                                // let _ = stream.set_nodelay(false);
                                 info!(%addr, "Client connected");
                                 // Reading NFS RPC messages over record marking codec
-                                let mut nfs_transport = Framed::new(stream, XDRProtoCodec::new());
+                                let nfs_transport = Framed::new(stream, XDRProtoCodec::new());
+                                let (mut nfs_sink, mut nfs_stream) = nfs_transport.split();
+                                let (resp_tx, mut resp_rx) = tokio::sync::mpsc::channel::<Box<RpcMessage<Bytes, Bytes>>>(100);
+
+                                // Response writer task
+                                tokio::spawn(async move {
+                                    loop {
+
+                                        match timeout(Duration::from_millis(5), resp_rx.recv()).await {
+                                            Ok(Some(msg)) => {
+                                                debug!("received message, now feeding in");
+                                                if let Err(e) = nfs_sink.feed(msg).await {
+                                                    error!("couldn't send response: {:?}", e);
+                                                    break;
+                                                }
+                                                trace!("response sent");
+                                            }
+                                            Ok(None) => {
+                                                trace!("channel closed");
+                                            },
+                                            Err(_) => {
+                                                //debug!("now flusing sender buffer");
+                                                let _ = nfs_sink.flush().await;
+                                            },
+                                        }
+                                    }
+                                }.instrument(span!(Level::TRACE, "writer", %addr)));
+
                                 // clone NFS server to move into the pipeline and actor connects with shared state
                                 // a per-client based filehandle cache
                                 let mut writehandle_cache = HashMap::new();
                                 let service = NFSService::new(nfs_protocol);
 
                                 loop {
-                                    let msg = nfs_transport.next().await;
+                                    let msg = nfs_stream.next().await;
                                     match msg {
                                         Some(Ok(msg)) => {
+                                            debug!(xid = %msg.xid(), "Received request");
                                             // create a NFS request
                                             let request = NfsRequest::new(
                                                 addr.to_string(),
@@ -90,14 +120,9 @@ impl NFSServer {
                                             );
 
                                             let resp = service.call(msg, request).await;
-                                            match nfs_transport.send(resp).await {
-                                                Ok(_) => {
-                                                    trace!("response sent");
-                                                }
-                                                Err(e) => {
-                                                    error!("couldn't send response: {:?}", e);
-                                                    break;
-                                                }
+                                            debug!(xid = %resp.xid(), "Processed request, queueing response");
+                                            if resp_tx.send(resp).await.is_err() {
+                                                break;
                                             }
                                         }
                                         Some(Err(e)) => {
@@ -109,14 +134,8 @@ impl NFSServer {
                                                 ),
                                             ));
                                             let resp = Box::new(RpcMessage::new(0, message_type));
-                                            match nfs_transport.send(resp).await {
-                                                Ok(_) => {
-                                                    trace!("response sent");
-                                                }
-                                                Err(e) => {
-                                                    error!("couldn't send response: {:?}", e);
-                                                    break;
-                                                }
+                                            if resp_tx.send(resp).await.is_err() {
+                                                break;
                                             }
                                         }
                                         None => {
@@ -169,8 +188,8 @@ impl ServerBuilder {
 
 #[cfg(test)]
 mod test_utils {
-    use std::sync::Arc;
     use async_lock::RwLock;
+    use std::sync::Arc;
 
     use crate::server::{
         clientmanager::ClientManagerHandle,
@@ -194,16 +213,20 @@ mod test_utils {
         let root: AsyncVfsPath = AsyncMemoryFS::new().into();
         let file1 = root.join("file1.txt").unwrap();
         file1
-            .create_file().await
+            .create_file()
+            .await
             .unwrap()
-            .write_all(b"Hello, World!").await
+            .write_all(b"Hello, World!")
+            .await
             .unwrap();
 
         let file1 = root.join("file1.txt").unwrap();
         file1
-            .create_file().await
+            .create_file()
+            .await
             .unwrap()
-            .write_all(b"Hello, loooooooong world!").await
+            .write_all(b"Hello, loooooooong world!")
+            .await
             .unwrap();
 
         let dir1 = root.join("dir1").unwrap();
@@ -211,9 +234,11 @@ mod test_utils {
 
         let file2 = dir1.join("file2.txt").unwrap();
         file2
-            .create_file().await
+            .create_file()
+            .await
             .unwrap()
-            .write_all(b"Hello, file2!").await
+            .write_all(b"Hello, file2!")
+            .await
             .unwrap();
 
         root

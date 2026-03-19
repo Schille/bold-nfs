@@ -9,6 +9,7 @@ use crate::server::{
 use bold_proto::nfs4_proto::xdr::{
     attrlist4, bitmap4, fattr4, nfs_resop4, GETATTR4args, GETATTR4res, GETATTR4resok,
 };
+use bold_proto::nfs4_utils::FileAttr;
 
 #[async_trait]
 impl NfsOperation for GETATTR4args {
@@ -37,8 +38,8 @@ impl NfsOperation for GETATTR4args {
             Some(filehandle) => {
                 let file_manager = request.file_manager.clone();
                 let rmanager = file_manager.read().await;
-                let attr = self.attr_request.clone();
-                let resp = rmanager.filehandle_attrs(attr.into(), &filehandle).await;
+                let attr_vec: Vec<FileAttr> = self.attr_request.clone().into();
+                let resp = rmanager.filehandle_attrs(&attr_vec, &filehandle).await;
 
                 let (answer_attrs, attrs) = match resp {
                     Some(inner) => inner,

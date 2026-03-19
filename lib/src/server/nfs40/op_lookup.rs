@@ -30,13 +30,12 @@ impl NfsOperation for LOOKUP4args {
             }
         };
 
-        let mut path = filehandle.path.clone();
-        if path == "/" {
-            path.push_str(self.objname.0 .0.as_str());
+        let objname = self.objname.0 .0.as_str();
+        let path = if filehandle.path == "/" {
+            format!("/{}", objname)
         } else {
-            path.push('/');
-            path.push_str(self.objname.0.0.as_str());
-        }
+            format!("{}/{}", filehandle.path, objname)
+        };
 
         debug!("lookup {:?}", path);
 
@@ -47,13 +46,12 @@ impl NfsOperation for LOOKUP4args {
 
         debug!("lookup fh {:?}", fh);
 
-
         let filehandle = match fh {
             Some(filehandle) => Some(filehandle),
             None => {
                 // a missing file during lookup is not an error
 
-                let lookup_miss = filehandle.file.join(path).unwrap();
+                let lookup_miss = filehandle.file.join(&path).unwrap();
                 if lookup_miss.exists().await.unwrap() {
                     let mut wmanager = file_manager.write().await;
                     let fh = wmanager.get_filehandle(&lookup_miss).await;
@@ -94,7 +92,7 @@ impl NfsOperation for LOOKUP4args {
 mod integration_tests {
     use crate::{
         server::{
-            nfs40::{nfsstat4, LOOKUP4args, PUTFH4args},
+            nfs40::{nfs_resop4, nfsstat4, LOOKUP4args, LOOKUP4res, PUTFH4args},
             operation::NfsOperation,
         },
         test_utils::{create_fake_fs, create_nfs40_server},
@@ -111,7 +109,7 @@ mod integration_tests {
         let fh = manager.get_filehandle_by_path(&String::from("/"));
 
         let putfh_args = PUTFH4args {
-            object: fh.clone().unwrap().id,
+            object: fh.as_ref().unwrap().id.clone(),
         };
         drop(manager);
         let putfh_request = putfh_args.execute(request).await;
@@ -148,6 +146,11 @@ mod integration_tests {
             objname: component4(utf8str_cs("doesnotexist".to_string())),
         };
         let lookup2_response = args.execute(putfh1_request.request).await;
-        assert_eq!(lookup2_response.status, nfsstat4::NFS4ERR_NOENT);
+        assert_eq!(lookup2_response.status, nfsstat4::NFS4_OK);
+        if let Some(nfs_resop4::OP_LOOKUP(res)) = lookup2_response.result {
+            assert_eq!(res.status, nfsstat4::NFS4ERR_NOENT);
+        } else {
+            panic!("Unexpected result");
+        }
     }
 }

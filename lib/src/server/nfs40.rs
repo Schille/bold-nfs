@@ -138,7 +138,7 @@ impl NfsProtoImpl for NFS40Server {
                 debug!("Now running ops {:?}", args.argarray);
                 for arg in args.argarray {
                     let response = match arg {
-                        nfs_argop4::OP_GETFH => __self.get_current_filehandle(request),
+                        nfs_argop4::OP_GETFH => self.get_current_filehandle(request),
                         nfs_argop4::OP_SETCLIENTID(args) => args.execute(request).await,
                         nfs_argop4::OP_ACCESS(args) => args.execute(request).await,
                         nfs_argop4::OP_CLOSE(args) => args.execute(request).await,
@@ -147,7 +147,7 @@ impl NfsProtoImpl for NFS40Server {
                         nfs_argop4::OP_OPEN(args) => args.execute(request).await,
                         nfs_argop4::OP_OPEN_CONFIRM(args) => args.execute(request).await,
                         nfs_argop4::OP_PUTFH(args) => args.execute(request).await,
-                        nfs_argop4::OP_PUTROOTFH => __self.put_root_filehandle(request).await,
+                        nfs_argop4::OP_PUTROOTFH => self.put_root_filehandle(request).await,
                         nfs_argop4::OP_READ(args) => args.execute(request).await,
                         nfs_argop4::OP_READDIR(args) => args.execute(request).await,
                         nfs_argop4::OP_RENEW(args) => args.execute(request).await,
@@ -157,25 +157,25 @@ impl NfsProtoImpl for NFS40Server {
                         nfs_argop4::OP_WRITE(args) => args.execute(request).await,
                         nfs_argop4::OP_COMMIT(args) => args.execute(request).await,
                         nfs_argop4::OP_CREATE(args) => args.execute(request).await,
-                        nfs_argop4::OP_DELEGPURGE(_) => __self.operation_not_supported(request),
-                        nfs_argop4::OP_DELEGRETURN(_) => __self.operation_not_supported(request),
-                        nfs_argop4::OP_LINK(_) => __self.operation_not_supported(request),
-                        nfs_argop4::OP_LOCK(_) => __self.operation_not_supported(request),
-                        nfs_argop4::OP_LOCKT(_) => __self.operation_not_supported(request),
-                        nfs_argop4::OP_LOCKU(_) => __self.operation_not_supported(request),
-                        nfs_argop4::OP_LOOKUPP => __self.operation_not_supported(request),
-                        nfs_argop4::OP_NVERIFY(_) => __self.operation_not_supported(request),
-                        nfs_argop4::OP_OPENATTR(_) => __self.operation_not_supported(request),
-                        nfs_argop4::OP_OPEN_DOWNGRADE(_) => __self.operation_not_supported(request),
-                        nfs_argop4::OP_PUTPUBFH => __self.operation_not_supported(request),
-                        nfs_argop4::OP_READLINK => __self.operation_not_supported(request),
-                        nfs_argop4::OP_RENAME(_) => __self.operation_not_supported(request),
-                        nfs_argop4::OP_RESTOREFH => __self.operation_not_supported(request),
-                        nfs_argop4::OP_SAVEFH => __self.operation_not_supported(request),
-                        nfs_argop4::OP_SECINFO(_) => __self.operation_not_supported(request),
-                        nfs_argop4::OP_VERIFY(_) => __self.operation_not_supported(request),
+                        nfs_argop4::OP_DELEGPURGE(_) => self.operation_not_supported(request),
+                        nfs_argop4::OP_DELEGRETURN(_) => self.operation_not_supported(request),
+                        nfs_argop4::OP_LINK(_) => self.operation_not_supported(request),
+                        nfs_argop4::OP_LOCK(_) => self.operation_not_supported(request),
+                        nfs_argop4::OP_LOCKT(_) => self.operation_not_supported(request),
+                        nfs_argop4::OP_LOCKU(_) => self.operation_not_supported(request),
+                        nfs_argop4::OP_LOOKUPP => self.operation_not_supported(request),
+                        nfs_argop4::OP_NVERIFY(_) => self.operation_not_supported(request),
+                        nfs_argop4::OP_OPENATTR(_) => self.operation_not_supported(request),
+                        nfs_argop4::OP_OPEN_DOWNGRADE(_) => self.operation_not_supported(request),
+                        nfs_argop4::OP_PUTPUBFH => self.operation_not_supported(request),
+                        nfs_argop4::OP_READLINK => self.operation_not_supported(request),
+                        nfs_argop4::OP_RENAME(_) => self.operation_not_supported(request),
+                        nfs_argop4::OP_RESTOREFH => self.operation_not_supported(request),
+                        nfs_argop4::OP_SAVEFH => self.operation_not_supported(request),
+                        nfs_argop4::OP_SECINFO(_) => self.operation_not_supported(request),
+                        nfs_argop4::OP_VERIFY(_) => self.operation_not_supported(request),
                         nfs_argop4::OP_RELEASE_LOCKOWNER(_) => {
-                            __self.operation_not_supported(request)
+                            self.operation_not_supported(request)
                         }
                         nfs_argop4::OP_ILLEGAL => todo!(),
                     };
@@ -185,7 +185,9 @@ impl NfsProtoImpl for NFS40Server {
                     if let Some(res) = res {
                         resarray.push(res);
                     } else {
-                        resarray.push(nfs_resop4::OP_ILLEGAL(ILLEGAL4res { status: last_status.clone() }));
+                        resarray.push(nfs_resop4::OP_ILLEGAL(ILLEGAL4res {
+                            status: last_status.clone(),
+                        }));
                         request = response.request;
                         break;
                     }

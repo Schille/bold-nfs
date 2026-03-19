@@ -34,7 +34,15 @@ impl NfsOperation for SETATTR4args<Bytes> {
                     let rmanager = file_manager.read().await;
 
                     let attrsset = rmanager
-                        .set_attr(&filehandle, &self.obj_attributes.attr_vals.decode(&self.obj_attributes.attrmask).unwrap()).await;
+                        .set_attr(
+                            &filehandle,
+                            &self
+                                .obj_attributes
+                                .attr_vals
+                                .decode(&self.obj_attributes.attrmask)
+                                .unwrap(),
+                        )
+                        .await;
 
                     // request
                     //     .file_manager()

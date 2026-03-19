@@ -553,7 +553,6 @@ impl attrlist4<Bytes> {
     }
 }
 
-
 impl Hash for nfs_fh4<bytes::Bytes> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.0.hash(state);
