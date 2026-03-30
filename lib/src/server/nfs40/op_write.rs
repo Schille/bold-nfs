@@ -1,14 +1,13 @@
 use async_trait::async_trait;
-use bytes::Bytes;
-use futures::AsyncSeekExt;
+use bytes::{Bytes, BytesMut};
 use futures::AsyncWriteExt;
-use std::io::SeekFrom;
 use tracing::{debug, error};
 
 use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
 
 use bold_proto::nfs4_proto::xdr::{
-    count4, nfs_resop4, nfsstat4, stable_how4, verifier4, WRITE4args, WRITE4res, WRITE4resok,
+    count4, nfs_resop4, nfsstat4, stable_how4, verifier4, Serialisable, WRITE4args, WRITE4res,
+    WRITE4resok,
 };
 
 fn verifier_from_boot(boot_time: &u64) -> Bytes {
@@ -24,16 +23,19 @@ impl NfsOperation for WRITE4args<Bytes> {
             "Operation 38: WRITE - Write to File {:?}, with request {:?}",
             self, request
         );
+        let mut buffer = BytesMut::new();
 
-        let current_filehandle = request.current_filehandle_vfs().await;
-        let filehandle = match current_filehandle {
-            Some(filehandle) => filehandle,
+        let current_filehandle = &request.filehandle_vfs;
+        match current_filehandle {
+            Some(_) => {}
             None => {
                 error!("None filehandle");
+                nfsstat4::NFS4ERR_FHEXPIRED.serialize(&mut buffer);
                 return NfsOpResponse {
                     request,
-                    result: None,
+                    //result: None,
                     status: nfsstat4::NFS4ERR_FHEXPIRED,
+                    buffer: buffer.freeze(),
                 };
             }
         };
@@ -43,10 +45,11 @@ impl NfsOperation for WRITE4args<Bytes> {
         if self.stable == stable_how4::UNSTABLE4 {
             // write to cache
 
-            let write_cache = match request.get_writehandle_from_cache(&filehandle.id) {
+            let write_cache = match request.get_current_writehandle_from_cache() {
                 Some(write_cache) => write_cache,
                 None => {
-                    request.drop_filehandle_from_cache(&filehandle.id);
+                    request.drop_current_filehandle_from_cache();
+                    let filehandle = request.filehandle_vfs.as_ref().unwrap();
                     let file_manager = request.file_manager.clone();
                     let cache_handle = {
                         let mut wmanager = file_manager.write().await;
@@ -57,9 +60,12 @@ impl NfsOperation for WRITE4args<Bytes> {
                 }
             };
 
-            write_cache.write_bytes(self.offset.0, &self.data).await;
+            let offset = self.offset.0;
+            let data = self.data.clone();
+            write_cache.write_bytes(offset, &data).await;
         } else {
             // write to file
+            let filehandle = request.filehandle_vfs.as_ref().unwrap();
             let mut file = filehandle.file.append_file().await.unwrap();
             // let _ = file.seek(SeekFrom::Start(self.offset.0 as u64));
             count = file.write(&self.data).await.unwrap() as u32;
@@ -72,14 +78,19 @@ impl NfsOperation for WRITE4args<Bytes> {
         }
 
         let boot_time = request.boot_time;
+        let result = nfs_resop4::OP_WRITE(WRITE4res::NFS4_OK(WRITE4resok {
+            count: count4(count),
+            committed: stable,
+            writeverf: verifier4(verifier_from_boot(&boot_time)),
+        }));
+        let mut buffer = BytesMut::new();
+        result.serialize(&mut buffer);
+
         NfsOpResponse {
             request,
-            result: Some(nfs_resop4::OP_WRITE(WRITE4res::NFS4_OK(WRITE4resok {
-                count: count4(count),
-                committed: stable,
-                writeverf: verifier4(verifier_from_boot(&boot_time)),
-            }))),
+            //result: Some(result),
             status: nfsstat4::NFS4_OK,
+            buffer: buffer.freeze(),
         }
     }
 }

@@ -16,7 +16,7 @@ use super::locking::LockingState;
 
 pub type FilehandleDb = MultiIndexFilehandleVfsMap;
 
-#[derive(MultiIndexMap, Debug, Clone)]
+#[derive(MultiIndexMap, Debug, Clone, PartialEq, Eq)]
 #[multi_index_derive(Debug, Clone)]
 pub struct FilehandleVfs {
     #[multi_index(hashed_unique)]
@@ -77,6 +77,15 @@ pub struct FilehandleVfs {
     pub locks: Vec<LockingState>,
     // the version of this filehandle, increased during updates
     pub version: u64,
+}
+
+impl std::hash::Hash for FilehandleVfs {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+        self.path.hash(state);
+        self.verifier.hash(state);
+        self.version.hash(state);
+    }
 }
 
 impl FilehandleVfs {
@@ -192,5 +201,25 @@ impl FilehandleVfs {
             seconds: since_epoch.as_secs() as i64,
             nseconds: since_epoch.subsec_nanos(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vfs::async_vfs::AsyncMemoryFS;
+
+    #[tokio::test]
+    async fn test_filehandle_vfs_eq() {
+        let path: AsyncVfsPath = AsyncMemoryFS::new().into();
+        let path1 = path.join("test.txt").unwrap();
+        let id1 = nfs_fh4(Bytes::from("1"));
+        let id2 = nfs_fh4(Bytes::from("2"));
+
+        let fh1 = FilehandleVfs::new(path1.clone(), id1.clone(), 0);
+        let fh2 = FilehandleVfs::new(path1.clone(), id1.clone(), 0);
+
+        assert_eq!(fh1, fh2);
+        assert_ne!(fh1, FilehandleVfs::new(path1, id2, 0));
     }
 }

@@ -1,14 +1,13 @@
 use async_trait::async_trait;
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use tracing::{debug, error};
 
 use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
 
 use bold_proto::nfs4_proto::xdr::{
     bitmap4, change_info4, changeid4, createtype4, nfs_resop4, nfsstat4, CREATE4args, CREATE4res,
-    CREATE4resok,
+    CREATE4resok, Serialisable,
 };
-use bold_proto::nfs4_utils::FileAttr;
 
 #[async_trait]
 impl NfsOperation for CREATE4args<Bytes> {
@@ -18,15 +17,16 @@ impl NfsOperation for CREATE4args<Bytes> {
             self, request
         );
 
-        let current_filehandle = request.current_filehandle_vfs().await;
+        let current_filehandle = &request.filehandle_vfs;
         let filehandle = match current_filehandle {
-            Some(filehandle) => filehandle,
+            Some(ref filehandle) => filehandle,
             None => {
                 error!("None filehandle");
                 return NfsOpResponse {
                     request,
-                    result: None,
+                    // result: None,
                     status: nfsstat4::NFS4ERR_FHEXPIRED,
+                    buffer: Bytes::new(),
                 };
             }
         };
@@ -37,8 +37,9 @@ impl NfsOperation for CREATE4args<Bytes> {
             // and name checks.  See Section 12.7 for further discussion.
             return NfsOpResponse {
                 request,
-                result: None,
+                // result: None,
                 status: nfsstat4::NFS4ERR_INVAL,
+                buffer: Bytes::new(),
             };
         }
 
@@ -74,19 +75,23 @@ impl NfsOperation for CREATE4args<Bytes> {
                 // https://datatracker.ietf.org/doc/html/rfc7530#section-16.4.2
                 return NfsOpResponse {
                     request,
-                    result: None,
+                    // result: None,
                     status: nfsstat4::NFS4ERR_BADTYPE,
+                    buffer: Bytes::new(),
                 };
             }
         };
 
+        let result: nfs_resop4<Bytes> =
+            nfs_resop4::OP_CREATE(CREATE4res::NFS4_OK(CREATE4resok { cinfo, attrset }));
+        let mut buffer = BytesMut::new();
+        result.serialize(&mut buffer);
+
         NfsOpResponse {
             request,
-            result: Some(nfs_resop4::OP_CREATE(CREATE4res::NFS4_OK(CREATE4resok {
-                cinfo,
-                attrset,
-            }))),
+            // result: Some(result),
             status: nfsstat4::NFS4_OK,
+            buffer: buffer.freeze(),
         }
     }
 }

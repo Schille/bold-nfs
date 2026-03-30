@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use bytes::{Bytes, BytesMut};
 use tracing::{debug, error};
 
 use crate::server::{
@@ -8,7 +9,9 @@ use crate::server::{
     response::NfsOpResponse,
 };
 
-use bold_proto::nfs4_proto::xdr::{changeid4, nfs_resop4, REMOVE4args, REMOVE4res, REMOVE4resok};
+use bold_proto::nfs4_proto::xdr::{
+    changeid4, nfs_resop4, REMOVE4args, REMOVE4res, REMOVE4resok, Serialisable,
+};
 
 #[async_trait]
 impl NfsOperation for REMOVE4args {
@@ -17,20 +20,25 @@ impl NfsOperation for REMOVE4args {
             "Operation 28: REMOVE - Remove File System Object {:?}, with request {:?}",
             self, request
         );
-        let filehandle = request.current_filehandle_vfs().await;
+        let filehandle = &request.filehandle_vfs;
         match filehandle {
             None => {
                 error!("None filehandle");
-                return NfsOpResponse {
-                    request,
-                    result: Some(nfs_resop4::OP_REMOVE(REMOVE4res::NFS4_OK(REMOVE4resok {
+                let result: nfs_resop4<Bytes> =
+                    nfs_resop4::OP_REMOVE(REMOVE4res::NFS4_OK(REMOVE4resok {
                         cinfo: change_info4 {
                             atomic: false,
                             before: changeid4(0),
                             after: changeid4(0),
                         },
-                    }))),
+                    }));
+                let mut buffer = BytesMut::new();
+                result.serialize(&mut buffer);
+                return NfsOpResponse {
+                    request,
+                    //result: Some(result),
                     status: nfsstat4::NFS4ERR_STALE,
+                    buffer: buffer.freeze(),
                 };
             }
             Some(filehandle) => {
@@ -39,16 +47,23 @@ impl NfsOperation for REMOVE4args {
                 let mut wmanager = file_manager.write().await;
                 let target_filehandle = wmanager.get_filehandle(&target).await;
                 wmanager.remove_file(target_filehandle).await;
-                NfsOpResponse {
-                    request,
-                    result: Some(nfs_resop4::OP_REMOVE(REMOVE4res::NFS4_OK(REMOVE4resok {
+
+                let result: nfs_resop4<Bytes> =
+                    nfs_resop4::OP_REMOVE(REMOVE4res::NFS4_OK(REMOVE4resok {
                         cinfo: change_info4 {
                             atomic: false,
                             before: changeid4(0),
                             after: changeid4(0),
                         },
-                    }))),
-                    status: nfsstat4::NFS4ERR_STALE,
+                    }));
+                let mut buffer = BytesMut::new();
+                result.serialize(&mut buffer);
+
+                NfsOpResponse {
+                    request,
+                    //result: Some(result),
+                    status: nfsstat4::NFS4_OK,
+                    buffer: buffer.freeze(),
                 }
             }
         }

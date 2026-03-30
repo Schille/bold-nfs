@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::LazyLock};
 
 use bold_proto::{
     nfs4_proto::xdr::{
@@ -11,17 +11,37 @@ use bold_proto::{
 
 mod filehandle;
 use bytes::Bytes;
+use dashmap::DashMap;
 pub use filehandle::{FilehandleDb, FilehandleVfs};
-use futures::{AsyncReadExt, AsyncWriteExt};
+use futures::{future::Lazy, AsyncReadExt, AsyncWriteExt};
 pub use handle::{FileManagerHandle, WriteCacheHandle};
 mod caching;
 mod handle;
 mod locking;
 
-use handle::FileManagerMessage;
 use locking::{LockingState, LockingStateDb};
 use tracing::{debug, error};
 use vfs::async_vfs::AsyncVfsPath;
+
+#[derive(Clone)]
+pub struct FileAttrVec(pub Vec<FileAttr>);
+
+impl std::hash::Hash for FileAttrVec {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.len().hash(state);
+        for attr in &self.0 {
+            (*attr as u32).hash(state);
+        }
+    }
+}
+
+impl PartialEq for FileAttrVec {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl Eq for FileAttrVec {}
 
 #[derive(Debug)]
 pub struct FileManager {
@@ -690,3 +710,32 @@ impl FileManager {
 //         });
 //     }
 // }
+
+#[cfg(test)]
+mod file_attr_vec_tests {
+    use super::*;
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    #[test]
+    fn test_file_attr_vec_hash() {
+        let v1 = FileAttrVec(vec![FileAttr::Type, FileAttr::Size]);
+        let v2 = FileAttrVec(vec![FileAttr::Type, FileAttr::Size]);
+        let v3 = FileAttrVec(vec![FileAttr::Size, FileAttr::Type]);
+
+        let mut h1 = DefaultHasher::new();
+        v1.hash(&mut h1);
+        let hash1 = h1.finish();
+
+        let mut h2 = DefaultHasher::new();
+        v2.hash(&mut h2);
+        let hash2 = h2.finish();
+
+        let mut h3 = DefaultHasher::new();
+        v3.hash(&mut h3);
+        let hash3 = h3.finish();
+
+        assert_eq!(hash1, hash2);
+        assert_ne!(hash1, hash3);
+    }
+}

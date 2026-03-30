@@ -1,13 +1,15 @@
-use std::io::{Read, SeekFrom};
+use std::io::SeekFrom;
 
 use async_trait::async_trait;
-use bytes::{Buf, Bytes, BytesMut};
+use bytes::{Bytes, BytesMut};
 use futures::AsyncReadExt;
 use futures::AsyncSeekExt;
 use tracing::{debug, error};
 
 use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
-use bold_proto::nfs4_proto::xdr::{nfs_resop4, nfsstat4, READ4args, READ4res, READ4resok};
+use bold_proto::nfs4_proto::xdr::{
+    nfs_resop4, nfsstat4, READ4args, READ4res, READ4resok, Serialisable,
+};
 
 #[async_trait]
 impl NfsOperation for READ4args<Bytes> {
@@ -16,15 +18,16 @@ impl NfsOperation for READ4args<Bytes> {
             "Operation 25: READ - Read from File {:?}, with request {:?}",
             self, request
         );
-        let current_filehandle = request.current_filehandle_vfs().await;
+        let current_filehandle = &request.filehandle_vfs;
         let filehandle = match current_filehandle {
-            Some(filehandle) => filehandle,
+            Some(ref filehandle) => filehandle,
             None => {
                 error!("None filehandle");
                 return NfsOpResponse {
                     request,
-                    result: None,
+                    // result: None,
                     status: nfsstat4::NFS4ERR_FHEXPIRED,
+                    buffer: Bytes::new(),
                 };
             }
         };
@@ -41,8 +44,9 @@ impl NfsOperation for READ4args<Bytes> {
                 error!("Error opening file: {:?}", e);
                 return NfsOpResponse {
                     request,
-                    result: None,
+                    // result: None,
                     status: nfsstat4::NFS4ERR_IO,
+                    buffer: Bytes::new(),
                 };
             }
         };
@@ -51,8 +55,9 @@ impl NfsOperation for READ4args<Bytes> {
             error!("Error seeking file: {:?}", e);
             return NfsOpResponse {
                 request,
-                result: None,
+                // result: None,
                 status: nfsstat4::NFS4ERR_IO,
+                buffer: Bytes::new(),
             };
         }
 
@@ -62,20 +67,26 @@ impl NfsOperation for READ4args<Bytes> {
                 error!("Error reading file: {:?}", e);
                 return NfsOpResponse {
                     request,
-                    result: None,
+                    // result: None,
                     status: nfsstat4::NFS4ERR_IO,
+                    buffer: Bytes::new(),
                 };
             }
         };
         buffer.truncate(bytes_read);
 
+        let result: nfs_resop4<Bytes> = nfs_resop4::OP_READ(READ4res::NFS4_OK(READ4resok {
+            eof: bytes_read < count,
+            data: buffer.freeze(),
+        }));
+        let mut buffer = BytesMut::new();
+        result.serialize(&mut buffer);
+
         NfsOpResponse {
             request,
-            result: Some(nfs_resop4::OP_READ(READ4res::NFS4_OK(READ4resok {
-                eof: bytes_read < count,
-                data: buffer.freeze(),
-            }))),
+            // result: Some(result),
             status: nfsstat4::NFS4_OK,
+            buffer: buffer.freeze(),
         }
     }
 }

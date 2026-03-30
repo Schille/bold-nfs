@@ -559,7 +559,7 @@ pub struct FileManagerHandle {
 
 pub enum WriteCacheMessage {
     Write(WriteBytesRequest),
-    Commit,
+    Commit(CommitBytesRequest),
 }
 
 pub struct WriteBytesRequest {
@@ -567,6 +567,11 @@ pub struct WriteBytesRequest {
     pub offset: u64,
     // bytes to insert
     pub data: Bytes,
+}
+
+pub struct CommitBytesRequest {
+    pub offset: u64,
+    pub count: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -594,7 +599,13 @@ impl WriteCacheHandle {
             .unwrap();
     }
 
-    pub async fn commit(&self) {
-        self.sender.send(WriteCacheMessage::Commit).await.unwrap();
+    pub async fn commit(&self, offset: u64, count: u32) {
+        self.sender
+            .send(WriteCacheMessage::Commit(CommitBytesRequest {
+                offset,
+                count,
+            }))
+            .await
+            .unwrap();
     }
 }

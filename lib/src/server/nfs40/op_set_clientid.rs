@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use tracing::debug;
 
 use crate::server::{
@@ -9,7 +9,7 @@ use crate::server::{
 
 use bold_proto::nfs4_proto::xdr::{
     clientid4, nfs_resop4, nfsstat4, verifier4, SETCLIENTID4args, SETCLIENTID4res,
-    SETCLIENTID4resok,
+    SETCLIENTID4resok, Serialisable,
 };
 
 #[async_trait]
@@ -42,22 +42,28 @@ impl NfsOperation for SETCLIENTID4args<Bytes> {
             )
             .await;
         match res {
-            Ok(client) => NfsOpResponse {
-                request,
-                result: Some(nfs_resop4::OP_SETCLIENTID(SETCLIENTID4res::NFS4_OK(
-                    SETCLIENTID4resok {
+            Ok(client) => {
+                let result =
+                    nfs_resop4::OP_SETCLIENTID(SETCLIENTID4res::NFS4_OK(SETCLIENTID4resok {
                         clientid: clientid4(client.clientid),
                         setclientid_confirm: verifier4(Bytes::from_owner(
                             client.setclientid_confirm,
                         )),
-                    },
-                ))),
-                status: nfsstat4::NFS4_OK,
-            },
+                    }));
+                let mut buffer = BytesMut::new();
+                result.serialize(&mut buffer);
+                NfsOpResponse {
+                    request,
+                    //result: Some(result),
+                    status: nfsstat4::NFS4_OK,
+                    buffer: buffer.freeze(),
+                }
+            }
             Err(_e) => NfsOpResponse {
                 request,
-                result: None,
+                //result: None,
                 status: nfsstat4::NFS4ERR_SERVERFAULT,
+                buffer: Bytes::new(),
             },
         }
     }

@@ -1,31 +1,35 @@
 use async_trait::async_trait;
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use tracing::{debug, error};
 
 use crate::server::{
     nfs40::nfsstat4, operation::NfsOperation, request::NfsRequest, response::NfsOpResponse,
 };
 
-use bold_proto::nfs4_proto::xdr::{attrlist4, nfs_resop4, SETATTR4args, SETATTR4res};
+use bold_proto::nfs4_proto::xdr::{nfs_resop4, SETATTR4args, SETATTR4res, Serialisable};
 
 #[async_trait]
 impl NfsOperation for SETATTR4args<Bytes> {
-    async fn execute<'a>(&self, mut request: NfsRequest<'a>) -> NfsOpResponse<'a> {
+    async fn execute<'a>(&self, request: NfsRequest<'a>) -> NfsOpResponse<'a> {
         debug!(
             "Operation 34: SETATTR - Set Attributes {:?}, with request {:?}",
             self, request
         );
-        let filehandle = request.current_filehandle_vfs().await;
+        let filehandle = &request.filehandle_vfs;
         match filehandle {
             None => {
                 error!("None filehandle");
+                let result: nfs_resop4<Bytes> = nfs_resop4::OP_SETATTR(SETATTR4res {
+                    status: nfsstat4::NFS4ERR_STALE,
+                    attrsset: Vec::new().into(),
+                });
+                let mut buffer = BytesMut::new();
+                result.serialize(&mut buffer);
                 NfsOpResponse {
                     request,
-                    result: Some(nfs_resop4::OP_SETATTR(SETATTR4res {
-                        status: nfsstat4::NFS4ERR_STALE,
-                        attrsset: Vec::new().into(),
-                    })),
+                    // result: Some(result),
                     status: nfsstat4::NFS4ERR_STALE,
+                    buffer: buffer.freeze(),
                 }
             }
             Some(filehandle) => {
@@ -54,13 +58,18 @@ impl NfsOperation for SETATTR4args<Bytes> {
                     Vec::new()
                 };
 
+                let result: nfs_resop4<Bytes> = nfs_resop4::OP_SETATTR(SETATTR4res {
+                    status: nfsstat4::NFS4_OK,
+                    attrsset: attrsset.into(),
+                });
+                let mut buffer = BytesMut::new();
+                result.serialize(&mut buffer);
+
                 NfsOpResponse {
                     request,
-                    result: Some(nfs_resop4::OP_SETATTR(SETATTR4res {
-                        status: nfsstat4::NFS4_OK,
-                        attrsset: attrsset.into(),
-                    })),
+                    // result: Some(result),
                     status: nfsstat4::NFS4_OK,
+                    buffer: buffer.freeze(),
                 }
             }
         }

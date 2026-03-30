@@ -5,24 +5,24 @@ pub mod server;
 use async_lock::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use bold_proto::onc_rpc::{auth::AuthFlavor, AcceptedReply, ReplyBody};
 use bold_proto::onc_rpc::{AcceptedStatus, MessageType};
 use bold_proto::{RpcMessage, XDRProtoCodec};
-use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use server::clientmanager::ClientManagerHandle;
 use server::filemanager::FileManager;
 use tokio::net::TcpListener;
-use tokio::time::timeout;
 use tokio_util::codec::Framed;
-use tracing::{debug, error, info, span, trace, Instrument, Level};
+use tracing::{debug, error, info, span, Instrument, Level};
 pub use vfs::async_vfs;
 pub use vfs::async_vfs::AsyncVfsPath;
 
 use crate::server::request::NfsRequest;
 use crate::server::{NFSService, NfsProtoImpl};
+
+use socket2::SockRef;
 
 pub struct NFSServer {
     /// The listining address of the server
@@ -72,33 +72,7 @@ impl NFSServer {
                                 // let _ = stream.set_nodelay(false);
                                 info!(%addr, "Client connected");
                                 // Reading NFS RPC messages over record marking codec
-                                let nfs_transport = Framed::new(stream, XDRProtoCodec::new());
-                                let (mut nfs_sink, mut nfs_stream) = nfs_transport.split();
-                                let (resp_tx, mut resp_rx) = tokio::sync::mpsc::channel::<Box<RpcMessage<Bytes, Bytes>>>(100);
-
-                                // Response writer task
-                                tokio::spawn(async move {
-                                    loop {
-
-                                        match timeout(Duration::from_millis(5), resp_rx.recv()).await {
-                                            Ok(Some(msg)) => {
-                                                debug!("received message, now feeding in");
-                                                if let Err(e) = nfs_sink.feed(msg).await {
-                                                    error!("couldn't send response: {:?}", e);
-                                                    break;
-                                                }
-                                                trace!("response sent");
-                                            }
-                                            Ok(None) => {
-                                                trace!("channel closed");
-                                            },
-                                            Err(_) => {
-                                                //debug!("now flusing sender buffer");
-                                                let _ = nfs_sink.flush().await;
-                                            },
-                                        }
-                                    }
-                                }.instrument(span!(Level::TRACE, "writer", %addr)));
+                                let mut nfs_transport = Framed::new(stream, XDRProtoCodec::new());
 
                                 // clone NFS server to move into the pipeline and actor connects with shared state
                                 // a per-client based filehandle cache
@@ -106,7 +80,7 @@ impl NFSServer {
                                 let service = NFSService::new(nfs_protocol);
 
                                 loop {
-                                    let msg = nfs_stream.next().await;
+                                    let msg = nfs_transport.next().await;
                                     match msg {
                                         Some(Ok(msg)) => {
                                             debug!(xid = %msg.xid(), "Received request");
@@ -119,9 +93,9 @@ impl NFSServer {
                                                 Some(&mut writehandle_cache),
                                             );
 
-                                            let resp = service.call(msg, request).await;
-                                            debug!(xid = %resp.xid(), "Processed request, queueing response");
-                                            if resp_tx.send(resp).await.is_err() {
+                                            let resp = service.call(&msg, request).await;
+                                            debug!(xid = %resp.xid(), "Processed request, sending response");
+                                            if nfs_transport.send(resp).await.is_err() {
                                                 break;
                                             }
                                         }
@@ -134,7 +108,7 @@ impl NFSServer {
                                                 ),
                                             ));
                                             let resp = Box::new(RpcMessage::new(0, message_type));
-                                            if resp_tx.send(resp).await.is_err() {
+                                            if nfs_transport.send(resp).await.is_err() {
                                                 break;
                                             }
                                         }
@@ -145,7 +119,7 @@ impl NFSServer {
                                         }
                                     }
                                 }
-                            }.instrument(span!(Level::TRACE, "client", %addr)));
+                            });
                         }
                         Err(e) => error!("couldn't get client: {:?}", e),
                     }

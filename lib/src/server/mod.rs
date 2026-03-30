@@ -52,7 +52,7 @@ where
 
     pub async fn call(
         &self,
-        rpc_call_message: RpcMessage<Bytes, Bytes>,
+        rpc_call_message: &Box<RpcMessage<Bytes, Bytes>>,
         request: NfsRequest<'_>,
     ) -> Box<RpcMessage<Bytes, Bytes>> {
         // debug!("{:?}", rpc_call_message);

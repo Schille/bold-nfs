@@ -7,7 +7,8 @@ use super::request::NfsRequest;
 pub struct NfsOpResponse<'a> {
     pub request: NfsRequest<'a>,
     // result of this operation
-    pub result: Option<nfs_resop4<Bytes>>,
+    // pub result: Option<nfs_resop4<Bytes>>,
     // status of this operation, err or ok
     pub status: nfsstat4,
+    pub buffer: Bytes,
 }

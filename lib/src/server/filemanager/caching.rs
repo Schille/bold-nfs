@@ -1,4 +1,6 @@
-use bytes::BytesMut;
+use std::collections::{BTreeMap, HashMap};
+
+use bytes::{BufMut, Bytes, BytesMut};
 use futures::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 
@@ -7,6 +9,7 @@ use super::{handle::WriteCacheMessage, FilehandleVfs};
 #[derive(Debug)]
 pub struct WriteCache {
     pub buffer: BytesMut,
+    pub write_log: BTreeMap<u64, Bytes>,
     pub changed: bool,
     pub filehandle: FilehandleVfs,
     pub receiver: mpsc::Receiver<WriteCacheMessage>,
@@ -17,7 +20,8 @@ impl WriteCache {
         receiver: mpsc::Receiver<WriteCacheMessage>,
         filehandle: FilehandleVfs,
     ) -> Self {
-        let mut buffer = BytesMut::with_capacity(4096);
+        let mut buffer = BytesMut::with_capacity(1024 * 1024);
+        let mut write_log = BTreeMap::new();
         if let Ok(mut file) = filehandle.file.open_file().await {
             // Pre-reserve based on current metadata
             if let Ok(metadata) = filehandle.file.metadata().await {
@@ -29,6 +33,7 @@ impl WriteCache {
 
         WriteCache {
             buffer,
+            write_log,
             changed: false,
             filehandle,
             receiver,
@@ -38,32 +43,41 @@ impl WriteCache {
     pub async fn handle_message(&mut self, msg: WriteCacheMessage) {
         match msg {
             WriteCacheMessage::Write(req) => {
-                let offset = req.offset as usize;
-                let data_len = req.data.len();
-                let end = offset + data_len;
-
-                if end > self.buffer.capacity() {
-                    self.buffer.reserve(data_len * 10);
-                }
-
-                if end > self.buffer.len() {
-                    self.buffer.resize(end, 0);
-                }
-
-                // Copy the data into the buffer.
-                self.buffer[offset..end].copy_from_slice(req.data.as_ref());
+                self.write_log.insert(req.offset, req.data);
                 self.changed = true;
             }
-            WriteCacheMessage::Commit => {
+            WriteCacheMessage::Commit(req) => {
                 // commit cache
-                if self.changed {
-                    if let Ok(mut file) = self.filehandle.file.create_file().await {
-                        // Using create_file() instead of append_file() because we have the whole buffer.
-                        // This might be more efficient depending on VFS.
-                        let _ = file.write_all(&self.buffer).await;
-                        let _ = file.flush().await;
+                if let Ok(mut file) = self.filehandle.file.create_file().await {
+                    // Using create_file() instead of append_file() because we have the whole buffer.
+                    // This might be more efficient depending on VFS.
+                    let mut result = BytesMut::with_capacity(req.count as usize);
+                    let end = req.offset + req.count as u64;
+                    let relevant_entries = self.write_log.range(..end);
+
+                    for (&entry_offset, data) in relevant_entries {
+                        let entry_len = data.len() as u64;
+                        let entry_end = entry_offset + entry_len;
+
+                        // Check if this specific entry actually overlaps with our query
+                        if entry_end <= req.offset {
+                            continue; // This entry ends before our query starts
+                        }
+
+                        // 2. Calculate which part of this entry we need
+                        let overlap_start = req.offset.max(entry_offset);
+                        let overlap_end = end.min(entry_end);
+
+                        let src_start = (overlap_start - entry_offset) as usize;
+                        let src_end = (overlap_end - entry_offset) as usize;
+
+                        // 3. Copy the sub-slice into our result buffer
+                        result.put_slice(&data[src_start..src_end]);
                     }
-                    self.changed = false;
+                    let slice = result.freeze();
+
+                    let _ = file.write_all(&slice).await;
+                    let _ = file.flush().await;
                 }
             }
         }

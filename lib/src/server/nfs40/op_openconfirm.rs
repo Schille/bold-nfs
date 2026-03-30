@@ -1,11 +1,12 @@
 use async_trait::async_trait;
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use tracing::debug;
 
 use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
 
 use bold_proto::nfs4_proto::xdr::{
     nfs_resop4, nfsstat4, stateid4, OPEN_CONFIRM4args, OPEN_CONFIRM4res, OPEN_CONFIRM4resok,
+    Serialisable,
 };
 
 #[async_trait]
@@ -16,23 +17,27 @@ impl NfsOperation for OPEN_CONFIRM4args<Bytes> {
             self, request
         );
         // we expect filehandle to have one lock (for the shared reservation)
-        let fh = request.current_filehandle_vfs().await.unwrap();
+        let fh = request.filehandle_vfs.as_ref().unwrap();
         let file_manager = request.file_manager.clone();
         let rmanager = file_manager.read().await;
-        let fh = rmanager.attach_locks(fh);
+        let fh = rmanager.attach_locks(fh.clone());
         let lock = fh.locks[0].clone();
         // TODO check if the stateid is correct
+        let result: nfs_resop4<Bytes> =
+            nfs_resop4::OP_OPEN_CONFIRM(OPEN_CONFIRM4res::NFS4_OK(OPEN_CONFIRM4resok {
+                open_stateid: stateid4 {
+                    seqid: lock.seqid,
+                    other: Bytes::from_owner(lock.stateid),
+                },
+            }));
+        let mut buffer = BytesMut::new();
+        result.serialize(&mut buffer);
+
         NfsOpResponse {
             request,
-            result: Some(nfs_resop4::OP_OPEN_CONFIRM(OPEN_CONFIRM4res::NFS4_OK(
-                OPEN_CONFIRM4resok {
-                    open_stateid: stateid4 {
-                        seqid: lock.seqid,
-                        other: Bytes::from_owner(lock.stateid),
-                    },
-                },
-            ))),
+            // result: Some(result),
             status: nfsstat4::NFS4_OK,
+            buffer: buffer.freeze(),
         }
     }
 }

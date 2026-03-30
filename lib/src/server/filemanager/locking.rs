@@ -4,13 +4,13 @@ use multi_index_map::MultiIndexMap;
 
 pub type LockingStateDb = MultiIndexLockingStateMap;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LockType {
     Open,
     ByteRange,
 }
 
-#[derive(MultiIndexMap, Debug, Clone)]
+#[derive(MultiIndexMap, Debug, Clone, PartialEq, Eq)]
 #[multi_index_derive(Debug, Clone)]
 pub struct LockingState {
     // https://datatracker.ietf.org/doc/html/rfc7530#section-9.1.4

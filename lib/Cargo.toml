@@ -22,3 +22,5 @@ vfs = { version = "0.12.2", features = ["async-vfs"] }
 async-trait = "0.1.81"
 tracing-test = "0.2.5"
 async-lock = "3.4.2"
+socket2 = "0.6.3"
+dashmap = "6.1.0"

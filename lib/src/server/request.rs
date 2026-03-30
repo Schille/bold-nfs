@@ -14,6 +14,7 @@ use super::{
 pub struct NfsRequest<'a> {
     client_addr: String,
     filehandle: Option<nfs_fh4<Bytes>>,
+    pub filehandle_vfs: Option<FilehandleVfs>,
     // shared state for client manager between connections
     cmanager: ClientManagerHandle,
     // local filehandle manager
@@ -46,6 +47,7 @@ impl<'a> NfsRequest<'a> {
         NfsRequest {
             client_addr,
             filehandle: None,
+            filehandle_vfs: None,
             cmanager,
             // fmanager,
             boot_time,
@@ -69,18 +71,19 @@ impl<'a> NfsRequest<'a> {
     }
 
     pub async fn current_filehandle_vfs(&self) -> Option<FilehandleVfs> {
+        self.filehandle_vfs.clone()
         // TODO handle None
-        match self.filehandle {
-            Some(ref fh) => {
-                let rmanager = self.file_manager.read().await;
-                let fh_vfs = rmanager.fhdb.get_by_id(&fh);
-                if let Some(fh_vfs) = fh_vfs {
-                    return Some(fh_vfs.clone());
-                }
-                None
-            }
-            None => None,
-        }
+        // match self.filehandle {
+        //     Some(ref fh) => {
+        //         let rmanager = self.file_manager.read().await;
+        //         let fh_vfs = rmanager.fhdb.get_by_id(&fh);
+        //         if let Some(fh_vfs) = fh_vfs {
+        //             return Some(&fh_vfs);
+        //         }
+        //         None
+        //     }
+        //     None => None,
+        // }
     }
 
     pub fn client_manager(&self) -> ClientManagerHandle {
@@ -105,6 +108,16 @@ impl<'a> NfsRequest<'a> {
         }
     }
 
+    pub fn drop_current_filehandle_from_cache(&mut self) {
+        let cache = self.writehandle_cache.as_mut();
+        match cache {
+            None => return,
+            Some(cache) => {
+                cache.remove(&self.filehandle.as_ref().unwrap());
+            }
+        }
+    }
+
     pub fn drop_filehandle_from_cache(&mut self, filehandle_id: &nfs_fh4<Bytes>) {
         let cache = self.writehandle_cache.as_mut();
         match cache {
@@ -112,6 +125,18 @@ impl<'a> NfsRequest<'a> {
             Some(cache) => {
                 cache.remove(filehandle_id);
             }
+        }
+    }
+
+    pub fn get_current_writehandle_from_cache(&mut self) -> Option<WriteCacheHandle> {
+        // if no cache set, return None
+        let cache = self.writehandle_cache.as_ref();
+        match cache {
+            None => None,
+            Some(cache) => match cache.get(&self.filehandle.as_ref().unwrap()) {
+                Some(fh) => Some(fh.clone()),
+                None => None,
+            },
         }
     }
 
@@ -130,16 +155,14 @@ impl<'a> NfsRequest<'a> {
         }
     }
 
-    pub async fn set_filehandle(
-        &mut self,
-        filehandle_id: &nfs_fh4<Bytes>,
-    ) -> Result<FilehandleVfs, nfsstat4> {
+    pub async fn set_filehandle(&mut self, filehandle_id: &nfs_fh4<Bytes>) -> Result<(), nfsstat4> {
         let rmanager = self.file_manager.read().await;
         let fh: Option<&FilehandleVfs> = rmanager.fhdb.get_by_id(filehandle_id);
         match fh {
             Some(fh) => {
                 self.filehandle = Some(fh.id.clone());
-                Ok(fh.clone())
+                self.filehandle_vfs = Some(fh.clone());
+                Ok(())
             }
             None => {
                 error!("couldn't set filehandle");

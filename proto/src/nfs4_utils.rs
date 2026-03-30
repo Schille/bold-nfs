@@ -7,7 +7,7 @@ use crate::nfs4_proto::xdr::{
     utf8str_cs,
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 #[repr(u32)]
 pub enum FileAttr {
     SupportedAttrs = 0,

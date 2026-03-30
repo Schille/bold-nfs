@@ -4,7 +4,7 @@ use bold_proto::nfs4_proto::xdr::{
     PUTROOTFH4res, Serialisable,
 };
 use bold_proto::onc_rpc::auth::AuthFlavor;
-use bytes::Bytes;
+use bytes::{BufMut, Bytes, BytesMut};
 
 use super::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
 use bold_proto::nfs4_proto::xdr::nfs_argop4;
@@ -39,43 +39,55 @@ impl NFS40Server {
     async fn put_root_filehandle<'a>(&self, mut request: NfsRequest<'a>) -> NfsOpResponse<'a> {
         let file_manager = request.file_manager.clone();
         let manager = file_manager.read().await;
-
+        let mut buffer = BytesMut::new();
+        let result: nfs_resop4<Bytes> = nfs_resop4::OP_PUTROOTFH(PUTROOTFH4res {
+            status: nfsstat4::NFS4_OK,
+        });
+        result.serialize(&mut buffer);
         match manager.get_filehandle_by_path(&String::from("/")) {
             Some(filehandle) => {
-                request.set_filehandle(&filehandle.id).await;
+                let _ = request.set_filehandle(&filehandle.id).await;
                 NfsOpResponse {
                     request,
-                    result: Some(nfs_resop4::OP_PUTROOTFH(PUTROOTFH4res {
-                        status: nfsstat4::NFS4_OK,
-                    })),
+                    //result: Some(result),
                     status: nfsstat4::NFS4_OK,
+                    buffer: buffer.freeze(),
                 }
             }
             None => NfsOpResponse {
                 request,
-                result: None,
+                //result: None,
                 status: nfsstat4::NFS4ERR_SERVERFAULT,
+                buffer: Bytes::new(),
             },
         }
     }
 
     fn get_current_filehandle<'a>(&self, request: NfsRequest<'a>) -> NfsOpResponse<'a> {
         let fh = request.current_filehandle_id();
+        let mut buffer = BytesMut::new();
+
         match fh {
-            Some(filehandle_id) => NfsOpResponse {
-                request,
-                result: Some(nfs_resop4::OP_GETFH(GETFH4res::NFS4_OK(GETFH4resok {
+            Some(filehandle_id) => {
+                let result = nfs_resop4::OP_GETFH(GETFH4res::NFS4_OK(GETFH4resok {
                     object: filehandle_id,
-                }))),
-                status: nfsstat4::NFS4_OK,
-            },
+                }));
+                result.serialize(&mut buffer);
+                NfsOpResponse {
+                    request,
+                    //result: Some(result),
+                    status: nfsstat4::NFS4_OK,
+                    buffer: buffer.freeze(),
+                }
+            }
             // current filehandle not set for client
             None => {
                 error!("Filehandle not set");
                 NfsOpResponse {
                     request,
-                    result: None,
+                    //result: None,
                     status: nfsstat4::NFS4ERR_SERVERFAULT,
+                    buffer: Bytes::new(),
                 }
             }
         }
@@ -84,8 +96,9 @@ impl NFS40Server {
     fn operation_not_supported<'a>(&self, request: NfsRequest<'a>) -> NfsOpResponse<'a> {
         NfsOpResponse {
             request,
-            result: None,
+            //result: None,
             status: nfsstat4::NFS4ERR_NOTSUPP,
+            buffer: Bytes::new(),
         }
     }
 }
@@ -126,11 +139,12 @@ impl NfsProtoImpl for NFS40Server {
         msg: &CallBody<Bytes, Bytes>,
         mut request: NfsRequest<'a>,
     ) -> (NfsRequest<'a>, ReplyBody<Bytes, Bytes>) {
+        let mut response_buffer = BytesMut::new();
         let mut last_status = nfsstat4::NFS4_OK;
         let payload = msg.payload();
         let compound_args: Result<COMPOUND4args<Bytes>, Error> =
             COMPOUND4args::try_from(payload.clone());
-        let res: Vec<nfs_resop4<Bytes>> = match compound_args {
+        let res = match compound_args {
             Ok(args) => {
                 let mut resarray = Vec::with_capacity(args.argarray.len());
                 // The server will process the COMPOUND procedure by evaluating each of
@@ -180,16 +194,25 @@ impl NfsProtoImpl for NFS40Server {
                         nfs_argop4::OP_ILLEGAL => todo!(),
                     };
                     // match the result of the operation, pass on success, return on error
-                    let res = response.result;
+                    //let res = response.result;
                     last_status = response.status;
-                    if let Some(res) = res {
-                        resarray.push(res);
-                    } else {
-                        resarray.push(nfs_resop4::OP_ILLEGAL(ILLEGAL4res {
-                            status: last_status.clone(),
-                        }));
-                        request = response.request;
-                        break;
+                    match last_status {
+                        nfsstat4::NFS4_OK => {
+                            resarray.push(1);
+                            response_buffer.put(response.buffer);
+                        }
+
+                        _ => {
+                            resarray.push(1);
+                            let result: nfs_resop4<Bytes> = nfs_resop4::OP_ILLEGAL(ILLEGAL4res {
+                                status: last_status.clone(),
+                            });
+                            let mut buffer = BytesMut::new();
+                            result.serialize(&mut buffer);
+                            response_buffer.put(buffer);
+                            request = response.request;
+                            break;
+                        }
                     }
                     match last_status {
                         nfsstat4::NFS4_OK => {}
@@ -213,18 +236,29 @@ impl NfsProtoImpl for NFS40Server {
             _ => Vec::new(),
         };
         debug!("res {:?}", res);
-        let nfs_response = COMPOUND4res {
-            status: last_status,
-            tag: utf8str_cs("".to_string()),
-            resarray: res,
-        };
-        let mut buf = BytesMut::new();
-        nfs_response.serialize(&mut buf);
+        // let nfs_response = COMPOUND4res {
+        //     status: last_status,
+        //     tag: utf8str_cs("".to_string()),
+        //     resarray: res,
+        // };
+        let mut message_header = BytesMut::new();
+
+        message_header.put_u32(last_status as u32);
+        utf8str_cs("".to_string()).serialize(&mut message_header);
+        // manual serialization of op responses
+        message_header.put_u32(res.len() as u32);
+        let p = pad_length(response_buffer.len());
+        for _ in 0..p {
+            response_buffer.put_u8(0)
+        }
+        message_header.unsplit(response_buffer);
+
+        let rbytes = message_header.freeze();
         (
             request,
             ReplyBody::Accepted(AcceptedReply::new(
                 AuthFlavor::AuthNone(None),
-                AcceptedStatus::Success(buf.into()),
+                AcceptedStatus::Success(rbytes),
             )),
         )
     }
@@ -232,4 +266,12 @@ impl NfsProtoImpl for NFS40Server {
     fn minor_version(&self) -> u32 {
         0
     }
+}
+
+#[inline]
+fn pad_length(l: usize) -> usize {
+    if l % 4 == 0 {
+        return 0;
+    }
+    4 - (l % 4)
 }

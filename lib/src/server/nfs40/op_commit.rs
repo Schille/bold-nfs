@@ -1,11 +1,11 @@
 use async_trait::async_trait;
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use tracing::{debug, error};
 
 use crate::server::{operation::NfsOperation, request::NfsRequest, response::NfsOpResponse};
 
 use bold_proto::nfs4_proto::xdr::{
-    nfs_resop4, nfsstat4, verifier4, COMMIT4args, COMMIT4res, COMMIT4resok,
+    nfs_resop4, nfsstat4, verifier4, COMMIT4args, COMMIT4res, COMMIT4resok, Serialisable,
 };
 
 fn verifier_from_boot(boot_time: &u64) -> [u8; 8] {
@@ -21,38 +21,43 @@ impl NfsOperation for COMMIT4args {
             "Operation 5: COMMIT - Commit Cached Data {:?}, with request {:?}",
             self, request
         );
-        let current_filehandle = request.current_filehandle_vfs().await;
+        let current_filehandle = &request.filehandle_vfs;
         let filehandle = match current_filehandle {
-            Some(filehandle) => filehandle,
+            Some(ref filehandle) => filehandle,
             None => {
                 error!("None filehandle");
                 return NfsOpResponse {
                     request,
-                    result: None,
+                    // result: None,
                     status: nfsstat4::NFS4ERR_FHEXPIRED,
+                    buffer: Bytes::new(),
                 };
             }
         };
 
         // unlock write cache & write file
 
-        let write_cache = request.get_writehandle_from_cache(&filehandle.id).unwrap();
-        // // TODO: this commits the whole cache, we should only commit the data up to the offset
-        write_cache.commit().await;
+        let write_cache = request.get_current_writehandle_from_cache().unwrap();
+        write_cache.commit(self.offset.0, self.count.0).await;
 
         // request
         //     .file_manager()
         //     .touch_file(filehandle.id.clone())
         //     .await;
 
-        request.drop_filehandle_from_cache(&filehandle.id);
+        request.drop_current_filehandle_from_cache();
         let boot_time = request.boot_time;
+        let result: nfs_resop4<Bytes> = nfs_resop4::OP_COMMIT(COMMIT4res::NFS4_OK(COMMIT4resok {
+            writeverf: verifier4(Bytes::copy_from_slice(&verifier_from_boot(&boot_time))),
+        }));
+        let mut buffer = BytesMut::new();
+        result.serialize(&mut buffer);
+
         NfsOpResponse {
             request,
-            result: Some(nfs_resop4::OP_COMMIT(COMMIT4res::NFS4_OK(COMMIT4resok {
-                writeverf: verifier4(Bytes::copy_from_slice(&verifier_from_boot(&boot_time))),
-            }))),
+            // result: Some(result),
             status: nfsstat4::NFS4_OK,
+            buffer: buffer.freeze(),
         }
     }
 }

@@ -26,7 +26,7 @@ impl XDRProtoCodec {
 }
 
 impl Decoder for XDRProtoCodec {
-    type Item = RpcMessage<Bytes, Bytes>;
+    type Item = Box<RpcMessage<Bytes, Bytes>>;
     type Error = std::io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -73,14 +73,14 @@ impl Decoder for XDRProtoCodec {
             let message = RpcMessage::try_from(message_data)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
                 .map(Some);
-            return message;
+            return Ok(Some(Box::new(message.unwrap().unwrap())));
         } else {
             // Multi-fragment message: concatenate fragments INCLUDING headers
             let message_data = src.split_to(offset).freeze();
             let message = RpcMessage::try_from(message_data)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
                 .map(Some);
-            return message;
+            return Ok(Some(Box::new(message.unwrap().unwrap())));
         }
     }
 }
