@@ -1316,9 +1316,9 @@ pub mod xdr {
     pub struct ascii_REQUIRED4<T: AsRef<[u8]> + Debug>(pub utf8string<T>);
     #[derive(Debug, PartialEq, Clone)]
     pub struct attrlist4<T: AsRef<[u8]> + Debug>(pub T);
-    #[derive(Debug, PartialEq, Clone)]
+    #[derive(Debug, PartialEq, Eq, Hash, Clone)]
     pub struct bitmap4(pub Vec<bitmap_inner>);
-    #[derive(Debug, PartialEq, Clone)]
+    #[derive(Debug, PartialEq, Eq, Hash, Clone)]
     pub struct bitmap_inner(pub u32);
     #[derive(Debug, PartialEq, Clone)]
     pub struct cb_client4 {
@@ -1774,8 +1774,7 @@ pub mod xdr {
         pub access_mask: acemask4,
         pub who: utf8str_mixed<T>,
     }
-    #[derive(Debug, PartialEq, Clone)]
-    #[repr(u32)]
+    #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
     pub enum nfsstat4 {
         NFS4_OK = 0,
         NFS4ERR_PERM = 1,
@@ -1987,9 +1986,9 @@ pub mod xdr {
         pub specdata1: u32,
         pub specdata2: u32,
     }
-    #[derive(Debug, PartialEq, Clone)]
-    #[repr(u32)]
+    #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
     pub enum stable_how4 {
+
         UNSTABLE4 = 0,
         DATA_SYNC4 = 1,
         FILE_SYNC4 = 2,

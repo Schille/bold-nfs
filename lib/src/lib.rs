@@ -45,7 +45,7 @@ impl NFSServer {
     /// Start the NFS server, serve forever
     /// This starts a tokio runtime and serves the NFS requests
     pub fn start(&self) {
-        tokio::runtime::Builder::new_multi_thread()
+        tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap()
@@ -67,12 +67,17 @@ impl NFSServer {
                             let filehandle_manager = filehandle_manager.clone();
                             let boot_time = self.boot_time;
                             let nfs_protocol = self.service_0.as_ref().unwrap().clone();
+                            
+                            let _ = stream.set_nodelay(true); // Keep low latency for the final flush
+
+                            // Wrap it! This prevents the "Syscall Thrashing"
+                            let buffered_stream = tokio::io::BufWriter::with_capacity(16384, stream);
 
                             tokio::spawn(async move {
-                                // let _ = stream.set_nodelay(false);
+                                // let _ = stream.set_nodelay(true);
                                 info!(%addr, "Client connected");
                                 // Reading NFS RPC messages over record marking codec
-                                let mut nfs_transport = Framed::new(stream, XDRProtoCodec::new());
+                                let mut nfs_transport = Framed::with_capacity(buffered_stream, XDRProtoCodec::new(), 64 * 1024);
 
                                 // clone NFS server to move into the pipeline and actor connects with shared state
                                 // a per-client based filehandle cache

@@ -1,5 +1,8 @@
+use std::sync::LazyLock;
+
 use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
+use dashmap::DashMap;
 use futures::AsyncWriteExt;
 use tracing::{debug, error};
 
@@ -15,6 +18,8 @@ fn verifier_from_boot(boot_time: &u64) -> Bytes {
     verifier.copy_from_slice(boot_time.to_be_bytes().as_ref());
     Bytes::from_owner(verifier)
 }
+
+static CACHE: LazyLock<DashMap<(u32, u32, u64), Bytes>> = LazyLock::new(|| DashMap::new());
 
 #[async_trait]
 impl NfsOperation for WRITE4args<Bytes> {
@@ -77,20 +82,30 @@ impl NfsOperation for WRITE4args<Bytes> {
             }
         }
 
+
+        // a cache for serialized buffer
         let boot_time = request.boot_time;
-        let result = nfs_resop4::OP_WRITE(WRITE4res::NFS4_OK(WRITE4resok {
-            count: count4(count),
-            committed: stable,
-            writeverf: verifier4(verifier_from_boot(&boot_time)),
-        }));
-        let mut buffer = BytesMut::new();
-        result.serialize(&mut buffer);
+        let cache_key = (count, stable as u32, boot_time);
+        let buffer = if let Some(cached_buffer) = CACHE.get(&cache_key) {
+            cached_buffer.clone()
+        } else {
+            let result = nfs_resop4::OP_WRITE(WRITE4res::NFS4_OK(WRITE4resok {
+                count: count4(count),
+                committed: stable,
+                writeverf: verifier4(verifier_from_boot(&boot_time)),
+            }));
+            let mut buffer = BytesMut::new();
+            result.serialize(&mut buffer);
+            let frozen = buffer.freeze();
+            CACHE.insert(cache_key, frozen.clone());
+            frozen
+        };
 
         NfsOpResponse {
             request,
             //result: Some(result),
             status: nfsstat4::NFS4_OK,
-            buffer: buffer.freeze(),
+            buffer,
         }
     }
 }

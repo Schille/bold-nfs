@@ -58,7 +58,7 @@ impl Decoder for XDRProtoCodec {
             }
 
             if src.len() < offset + 4 + length {
-                src.reserve(offset + 4 + length - src.len());
+                src.reserve(offset + 4 + length);
                 return Ok(None);
             }
 
