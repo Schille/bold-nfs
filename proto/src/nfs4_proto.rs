@@ -1988,7 +1988,6 @@ pub mod xdr {
     }
     #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
     pub enum stable_how4 {
-
         UNSTABLE4 = 0,
         DATA_SYNC4 = 1,
         FILE_SYNC4 = 2,

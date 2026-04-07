@@ -36,8 +36,8 @@ fn main() {
     let root_dir: memoryfs::Directory = serde_yaml::from_str(&contents).unwrap();
 
     let root = std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
+        let mut rt = monoio::RuntimeBuilder::<monoio::IoUringDriver>::new()
+            .with_entries(256)
             .build()
             .unwrap();
 

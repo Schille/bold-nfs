@@ -10,7 +10,6 @@ fastxdr = { git = "https://github.com/domodwyer/fastxdr.git" }
 hex-literal = "0.4.1"
 onc-rpc = "0.3.2"
 thiserror = "2.0.3"
-tokio-util = { version = "^0.7.12", features = ["codec"] }
 tracing = "0.1.40"
 
 [dev-dependencies]

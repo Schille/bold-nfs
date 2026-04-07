@@ -209,7 +209,7 @@ mod tests {
     use super::*;
     use vfs::async_vfs::AsyncMemoryFS;
 
-    #[tokio::test]
+    #[monoio::test]
     async fn test_filehandle_vfs_eq() {
         let path: AsyncVfsPath = AsyncMemoryFS::new().into();
         let path1 = path.join("test.txt").unwrap();

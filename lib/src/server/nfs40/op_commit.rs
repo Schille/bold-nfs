@@ -37,8 +37,11 @@ impl NfsOperation for COMMIT4args {
 
         // unlock write cache & write file
 
-        let write_cache = request.get_current_writehandle_from_cache().unwrap();
-        write_cache.commit(self.offset.0, self.count.0).await;
+        let write_cache = request.get_current_writehandle_from_cache();
+        match write_cache {
+            Some(write_cache) => write_cache.commit(self.offset.0, self.count.0).await,
+            None => {}
+        }
 
         // request
         //     .file_manager()

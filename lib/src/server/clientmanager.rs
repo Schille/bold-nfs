@@ -313,7 +313,7 @@ impl ClientManagerHandle {
         let (sender, receiver) = mpsc::channel(16);
         let cmanager = ClientManager::new(receiver);
         // start the client manager actor
-        tokio::spawn(run_client_manager(cmanager));
+        monoio::spawn(run_client_manager(cmanager));
 
         Self { sender }
     }
@@ -415,7 +415,7 @@ impl ClientManagerHandle {
 
 /// ClientManager is run as with the actor pattern
 ///
-/// Learn more: https://ryhl.io/blog/actors-with-tokio/
+/// Learn more: https://ryhl.io/blog/actors-with-tokio/ (concept applies to monoio too)
 async fn run_client_manager(mut actor: ClientManager) {
     while let Some(msg) = actor.receiver.recv().await {
         actor.handle_message(msg);

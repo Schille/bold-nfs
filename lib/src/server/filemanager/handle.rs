@@ -584,7 +584,7 @@ impl WriteCacheHandle {
         let (sender, receiver) = mpsc::channel(16);
         let write_cache = WriteCache::new(receiver, filehandle).await;
         // start the writecache actor
-        tokio::spawn(run_file_write_cache(write_cache));
+        monoio::spawn(run_file_write_cache(write_cache));
 
         Self { sender }
     }

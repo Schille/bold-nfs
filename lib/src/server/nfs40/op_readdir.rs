@@ -218,7 +218,7 @@ impl NfsOperation for READDIR4args<Bytes> {
 //         test_utils::{create_fake_fs, create_nfs40_server},
 //     };
 
-//     #[tokio::test]
+//     #[monoio::test]
 //     #[traced_test]
 //     async fn test_read_directory() {
 //         // dummy fs, empty
@@ -293,7 +293,7 @@ impl NfsOperation for READDIR4args<Bytes> {
 //         }
 //     }
 
-//     #[tokio::test]
+//     #[monoio::test]
 //     #[traced_test]
 //     async fn test_read_directory_with_cookie() {
 //         let request = create_nfs40_server(Some(create_fake_fs().await)).await;
@@ -350,7 +350,7 @@ impl NfsOperation for READDIR4args<Bytes> {
 //         }
 //     }
 
-//     #[tokio::test]
+//     #[monoio::test]
 //     #[traced_test]
 //     async fn test_read_directory_limits() {
 //         let request = create_nfs40_server(Some(create_fake_fs().await)).await;

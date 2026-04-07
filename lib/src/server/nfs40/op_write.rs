@@ -82,7 +82,6 @@ impl NfsOperation for WRITE4args<Bytes> {
             }
         }
 
-
         // a cache for serialized buffer
         let boot_time = request.boot_time;
         let cache_key = (count, stable as u32, boot_time);

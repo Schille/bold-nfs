@@ -85,7 +85,7 @@ impl WriteCache {
 }
 
 // WriteCache is run as with the actor pattern
-// learn more: https://ryhl.io/blog/actors-with-tokio/
+// learn more: https://ryhl.io/blog/actors-with-tokio/ (concept applies to monoio too)
 pub async fn run_file_write_cache(mut actor: WriteCache) {
     while let Some(msg) = actor.receiver.recv().await {
         actor.handle_message(msg).await;

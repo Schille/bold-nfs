@@ -110,7 +110,7 @@ impl NfsOperation for LOOKUP4args {
 //     use bold_proto::nfs4_proto::xdr::{component4, utf8str_cs};
 //     use tracing_test::traced_test;
 
-//     #[tokio::test]
+//     #[monoio::test]
 //     #[traced_test]
 //     async fn test_lookup() {
 //         let request = create_nfs40_server(Some(create_fake_fs().await)).await;
